@@ -1,20 +1,124 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Omniforce Client Reporting Dashboard
 
-# Run and deploy your AI Studio app
+Multi-tenant SaaS reporting dashboard for AI automation agencies to provide clients with real-time visibility into automation performance.
 
-This contains everything you need to run your app locally.
+## Tech Stack
 
-View your app in AI Studio: https://ai.studio/apps/drive/1jhexnaq80z-9mFdnIjvhsPKoCFOBWqcn
+- **Framework:** Next.js 14 (App Router)
+- **Database:** PostgreSQL (Supabase) with Prisma ORM
+- **Authentication:** NextAuth.js
+- **Styling:** Tailwind CSS
+- **Charts:** Recharts
+- **TypeScript:** Full type safety
 
-## Run Locally
+## Getting Started
 
-**Prerequisites:**  Node.js
+### Prerequisites
 
+- Node.js 18+
+- PostgreSQL database (Supabase)
+
+### Installation
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm install
+```
+
+2. Set up environment variables:
+```bash
+cp .env.example .env.local
+```
+
+Edit `.env.local` with your database credentials:
+```bash
+DATABASE_URL="postgresql://postgres:[PASSWORD]@db.bjrvvlhmfdfqfepoxpbj.supabase.co:5432/postgres"
+SUPABASE_URL="https://bjrvvlhmfdfqfepoxpbj.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+NEXTAUTH_SECRET="generate-a-random-secret-here"
+NEXTAUTH_URL="http://localhost:3000"
+```
+
+3. Generate Prisma client:
+```bash
+npm run db:generate
+```
+
+4. Run the development server:
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## Project Structure
+
+```
+/
+├── src/
+│   ├── app/              # Next.js App Router
+│   │   ├── api/          # API routes (server-side proxy)
+│   │   ├── dashboard/     # Dashboard page
+│   │   └── layout.tsx     # Root layout
+│   ├── components/        # React components
+│   ├── lib/
+│   │   ├── db/           # Prisma client & queries
+│   │   ├── auth/         # NextAuth configuration
+│   │   └── utils/        # Utility functions
+│   ├── middleware.ts     # Tenant resolution
+│   └── types/            # TypeScript types
+├── prisma/
+│   └── schema.prisma     # Database schema
+└── docs/                 # Documentation
+```
+
+## Key Features
+
+- ✅ Multi-tenant architecture with subdomain routing
+- ✅ Server-side API proxy for secure external API calls
+- ✅ Type-safe database access with Prisma
+- ✅ Authentication with NextAuth.js
+- ✅ Real-time dashboard with charts and metrics
+
+## Database
+
+The database schema includes:
+- `tenants` - Multi-tenant organizations
+- `users` - User accounts with role-based access
+- `dashboards` - Dashboard configurations
+- `automations` - Automation definitions
+- `metrics` - Time-series performance data
+
+## API Routes
+
+All external API calls follow the server-side proxy pattern to keep API keys secure:
+
+- `/api/metrics` - Fetch metrics for current tenant
+- `/api/automations` - Fetch automations for current tenant
+- `/api/external/example` - Example external API proxy
+- `/api/auth/[...nextauth]` - NextAuth.js authentication
+
+## Development
+
+```bash
+# Start dev server
+npm run dev
+
+# Generate Prisma client
+npm run db:generate
+
+# Run database migrations
+npm run db:migrate
+
+# Open Prisma Studio
+npm run db:studio
+```
+
+## Security
+
+- All external API calls are server-side only
+- API keys stored in environment variables
+- Tenant isolation enforced at middleware level
+- Row-level security ready for database policies
+
+See `docs/PDRs/01` for complete documentation.

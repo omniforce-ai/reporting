@@ -1,0 +1,14 @@
+
+> omniforce-ai-analytics-dashboard@0.0.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use by process 30204, using available port 3006 instead.
+   ▲ Next.js 16.0.1 (Turbopack)
+   - Local:        http://localhost:3006
+   - Network:      http://192.168.0.237:3006
+   - Environments: .env.local, .env
+
+ ✓ Starting...
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+ ✓ Ready in 1457ms
+^C

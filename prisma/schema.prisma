@@ -1,0 +1,94 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id            String   @id @default(cuid())
+  name          String
+  subdomain     String   @unique
+  customDomain  String?  @unique
+  logoUrl       String?
+  primaryColor  String   @default("#3B82F6")
+  apiKeys       Json?    @default("{}")
+  features      Json?    @default("{\"enabledFeatures\": []}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  users         User[]
+  dashboards    Dashboard[]
+  automations   Automation[]
+  
+  @@map("tenants")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  passwordHash  String
+  role          Role     @default(CLIENT_VIEWER)
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum Role {
+  SUPER_ADMIN
+  AGENCY_ADMIN
+  CLIENT_ADMIN
+  CLIENT_VIEWER
+}
+
+model Dashboard {
+  id          String   @id @default(cuid())
+  name        String
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  config      Json     // Stores dashboard layout and widgets
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([tenantId])
+  @@map("dashboards")
+}
+
+model Automation {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  type            String   // workflow, chatbot, scraper, etc.
+  status          String   // active, paused, error
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  
+  metrics         Metric[]
+  
+  @@index([tenantId])
+  @@map("automations")
+}
+
+model Metric {
+  id              String   @id @default(cuid())
+  automationId    String
+  automation      Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  metricType      String   // cost_savings, time_saved, tasks_completed
+  value           Float
+  unit            String   // USD, hours, count
+  timestamp       DateTime @default(now())
+  
+  @@index([automationId, timestamp])
+  @@map("metrics")
+}

@@ -1,0 +1,69 @@
+import { NextResponse } from 'next/server';
+import { getCurrentTenant } from '@/lib/utils/tenant';
+
+const SMARTLEAD_BASE_URL = 'https://server.smartlead.ai/api/v1';
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ campaignId: string }> }
+) {
+  try {
+    const { campaignId } = await params;
+    const tenant = await getCurrentTenant();
+    
+    const apiKeys = tenant.apiKeys as { smartlead?: string } | null;
+    const smartleadApiKey = apiKeys?.smartlead;
+
+    if (!smartleadApiKey) {
+      return NextResponse.json(
+        { error: 'Smartlead API key not configured' },
+        { status: 400 }
+      );
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(
+      `${SMARTLEAD_BASE_URL}/campaigns/${campaignId}/analytics?api_key=${encodeURIComponent(smartleadApiKey)}`,
+      {
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        next: { revalidate: 300 }, // Cache for 5 minutes
+      }
+    );
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Smartlead analytics error:', response.status, errorText);
+      
+      return NextResponse.json(
+        { error: `Smartlead API error: ${response.statusText}` },
+        { status: response.status }
+      );
+    }
+
+    const analytics = await response.json();
+
+    return NextResponse.json({ analytics });
+  } catch (error) {
+    console.error('Error fetching campaign analytics:', error);
+    
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Request timeout' },
+        { status: 504 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: 'Failed to fetch campaign analytics' },
+      { status: 500 }
+    );
+  }
+}
+

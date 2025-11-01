@@ -1,0 +1,924 @@
+# Product Requirements Document (PRD)
+## AI Automation Agency Client Reporting Application
+### For Development in Cursor AI
+
+**Version:** 1.0  
+**Date:** November 1, 2025  
+**Development Environment:** Cursor AI  
+**Status:** Ready for Implementation
+
+---
+
+## 1. Executive Summary
+
+### 1.1 Product Vision
+Build a multi-tenant SaaS reporting dashboard that allows AI automation agencies to provide clients with real-time visibility into automation performance, ROI metrics, and business outcomes through visual, actionable insights.
+
+### 1.2 Success Metrics
+- Reduce manual reporting from 6 hours/client/month to <30 minutes
+- Support 50+ clients with isolated data environments
+- Dashboard load time <2 seconds
+- 99.9% uptime for client access
+
+### 1.3 Target Users
+- **Agency Admins:** Manage multiple client accounts, configure white-label branding
+- **Client Users:** View their automation performance and reports
+- **Agency Staff:** Create and deliver reports to clients
+
+---
+
+## 2. Technical Stack for Cursor AI
+
+### 2.1 Recommended Technology Stack
+
+```
+Frontend:
+- Next.js 14+ (App Router with TypeScript)
+- Tailwind CSS for styling
+- Recharts for data visualization
+- Lucide React for icons
+
+Backend:
+- Next.js API Routes (server-side external API proxy)
+- Prisma ORM with PostgreSQL
+- NextAuth.js for authentication
+- Server Components for secure data fetching
+
+Database:
+- PostgreSQL 15+ (Supabase recommended)
+- Row-Level Security (RLS) for tenant isolation
+
+Deployment:
+- Vercel (optimal for Next.js)
+- Environment variables for secrets
+```
+
+### 2.2 Project Structure for Cursor
+
+```
+/your-project
+├── /src
+│   ├── /app
+│   │   ├── /api
+│   │   │   ├── /auth/[...nextauth]/route.ts
+│   │   │   ├── /dashboards/route.ts
+│   │   │   └── /clients/route.ts
+│   │   ├── /dashboard
+│   │   │   └── page.tsx
+│   │   ├── /client/[clientId]
+│   │   │   └── page.tsx
+│   │   ├── layout.tsx
+│   │   └── page.tsx
+│   ├── /components
+│   │   ├── /charts
+│   │   │   ├── KPICard.tsx
+│   │   │   ├── LineChart.tsx
+│   │   │   ├── BarChart.tsx
+│   │   │   └── GaugeChart.tsx
+│   │   ├── /dashboard
+│   │   │   ├── DashboardLayout.tsx
+│   │   │   └── Sidebar.tsx
+│   │   └── /ui (shadcn components)
+│   ├── /lib
+│   │   ├── /db
+│   │   │   ├── prisma.ts
+│   │   │   └── queries.ts
+│   │   ├── /auth
+│   │   │   └── auth-config.ts
+│   │   └── /utils
+│   │       ├── tenant.ts
+│   │       └── helpers.ts
+│   ├── /middleware.ts (tenant resolution)
+│   ├── /types
+│   │   └── index.ts
+│   └── /styles
+│       └── globals.css
+├── /prisma
+│   ├── schema.prisma
+│   └── migrations/
+├── .env.local
+├── package.json
+└── tsconfig.json
+```
+
+---
+
+## 3. Database Schema
+
+### 3.1 Core Tables
+
+```prisma
+// prisma/schema.prisma
+
+model Tenant {
+  id            String   @id @default(cuid())
+  name          String
+  subdomain     String   @unique
+  customDomain  String?  @unique
+  logoUrl       String?
+  primaryColor  String   @default("#3B82F6")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  users         User[]
+  dashboards    Dashboard[]
+  automations   Automation[]
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String?
+  passwordHash  String
+  role          Role     @default(CLIENT_VIEWER)
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  createdAt     DateTime @default(now())
+  
+  @@index([tenantId])
+}
+
+enum Role {
+  SUPER_ADMIN
+  AGENCY_ADMIN
+  CLIENT_ADMIN
+  CLIENT_VIEWER
+}
+
+model Dashboard {
+  id          String   @id @default(cuid())
+  name        String
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  config      Json     // Stores dashboard layout and widgets
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([tenantId])
+}
+
+model Automation {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  type            String   // workflow, chatbot, scraper, etc.
+  status          String   // active, paused, error
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  createdAt       DateTime @default(now())
+  
+  metrics         Metric[]
+  
+  @@index([tenantId])
+}
+
+model Metric {
+  id              String   @id @default(cuid())
+  automationId    String
+  automation      Automation @relation(fields: [automationId], references: [id])
+  metricType      String   // cost_savings, time_saved, tasks_completed
+  value           Float
+  unit            String   // USD, hours, count
+  timestamp       DateTime @default(now())
+  
+  @@index([automationId, timestamp])
+}
+```
+
+### 3.2 Row-Level Security Setup
+
+For PostgreSQL, enable RLS policies:
+
+```sql
+-- Enable RLS on all tenant-scoped tables
+ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Dashboard" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Automation" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Metric" ENABLE ROW LEVEL SECURITY;
+
+-- Create policy to enforce tenant isolation
+CREATE POLICY tenant_isolation_policy ON "User"
+  USING (tenantId = current_setting('app.current_tenant_id')::text);
+  
+-- Repeat for other tables
+```
+
+---
+
+## 4. Authentication & Multi-Tenancy
+
+### 4.1 Subdomain-Based Tenant Resolution
+
+Create middleware to extract tenant from subdomain:
+
+```typescript
+// src/middleware.ts
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+export function middleware(request: NextRequest) {
+  const hostname = request.headers.get('host') || '';
+  const subdomain = hostname.split('.')[0];
+  
+  // Skip for main domain
+  if (subdomain === 'www' || subdomain === 'youragency') {
+    return NextResponse.next();
+  }
+  
+  // Add tenant info to headers
+  const response = NextResponse.next();
+  response.headers.set('x-tenant-subdomain', subdomain);
+  
+  return response;
+}
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+};
+```
+
+### 4.2 Tenant Context in API Routes
+
+```typescript
+// src/lib/utils/tenant.ts
+import { headers } from 'next/headers';
+import { prisma } from '@/lib/db/prisma';
+
+export async function getCurrentTenant() {
+  const headersList = headers();
+  const subdomain = headersList.get('x-tenant-subdomain');
+  
+  if (!subdomain) {
+    throw new Error('No tenant subdomain found');
+  }
+  
+  const tenant = await prisma.tenant.findUnique({
+    where: { subdomain },
+  });
+  
+  if (!tenant) {
+    throw new Error('Tenant not found');
+  }
+  
+  return tenant;
+}
+```
+
+### 4.3 NextAuth Configuration
+
+```typescript
+// src/lib/auth/auth-config.ts
+import NextAuth from 'next-auth';
+import CredentialsProvider from 'next-auth/providers/credentials';
+import { PrismaAdapter } from '@next-auth/prisma-adapter';
+import { prisma } from '@/lib/db/prisma';
+import bcrypt from 'bcryptjs';
+
+export const authOptions = {
+  adapter: PrismaAdapter(prisma),
+  providers: [
+    CredentialsProvider({
+      name: 'credentials',
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials, req) {
+        if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
+        
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email },
+          include: { tenant: true }
+        });
+        
+        if (!user) return null;
+        
+        const isValid = await bcrypt.compare(
+          credentials.password, 
+          user.passwordHash
+        );
+        
+        if (!isValid) return null;
+        
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          tenantId: user.tenantId,
+          tenant: user.tenant
+        };
+      }
+    })
+  ],
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = user.role;
+        token.tenantId = user.tenantId;
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.role = token.role;
+        session.user.tenantId = token.tenantId;
+      }
+      return session;
+    }
+  },
+  pages: {
+    signIn: '/login',
+  }
+};
+```
+
+---
+
+## 5. Chart Components & Visualization
+
+### 5.1 Chart Type Selection Guide
+
+Based on research, implement these chart types in order of priority:
+
+**Phase 1 (Essential):**
+1. **KPI Cards** - Top metrics with sparklines and trend indicators
+2. **Line Charts** - Time-series trends (cost savings over time)
+3. **Vertical Bar Charts** - Category comparisons (automation performance)
+4. **Gauge Charts** - Goal progress (monthly targets)
+5. **Donut Charts** - Proportional breakdowns (time allocation)
+
+**Phase 2 (Advanced):**
+6. **Area Charts** - Cumulative volume visualization
+7. **Horizontal Bar Charts** - Rankings with long labels
+8. **Combo Charts** - Dual-axis comparisons ($ vs hours)
+
+### 5.2 KPI Card Component Example
+
+```typescript
+// src/components/charts/KPICard.tsx
+import { TrendingUp, TrendingDown } from 'lucide-react';
+
+interface KPICardProps {
+  title: string;
+  value: string | number;
+  change: number; // percentage change
+  trend: 'up' | 'down';
+  unit?: string;
+  sparklineData?: number[];
+}
+
+export function KPICard({ 
+  title, 
+  value, 
+  change, 
+  trend,
+  unit = '',
+  sparklineData = []
+}: KPICardProps) {
+  const isPositive = trend === 'up';
+  
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 hover:shadow-lg transition-shadow">
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">
+            {title}
+          </p>
+          <p className="text-3xl font-bold mt-2 text-gray-900 dark:text-white">
+            {value}{unit}
+          </p>
+        </div>
+        <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-medium ${
+          isPositive 
+            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+        }`}>
+          {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+          {Math.abs(change)}%
+        </div>
+      </div>
+      
+      {sparklineData.length > 0 && (
+        <div className="mt-4 h-8">
+          {/* Simple sparkline using SVG or Recharts AreaChart */}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 5.3 Line Chart Component Example
+
+```typescript
+// src/components/charts/LineChart.tsx
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+interface DataPoint {
+  date: string;
+  value: number;
+}
+
+interface CustomLineChartProps {
+  data: DataPoint[];
+  dataKey: string;
+  title: string;
+  color?: string;
+}
+
+export function CustomLineChart({ 
+  data, 
+  dataKey, 
+  title,
+  color = '#3B82F6' 
+}: CustomLineChartProps) {
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+      <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
+        {title}
+      </h3>
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+          <XAxis 
+            dataKey="date" 
+            stroke="#6B7280"
+            fontSize={12}
+          />
+          <YAxis 
+            stroke="#6B7280"
+            fontSize={12}
+          />
+          <Tooltip 
+            contentStyle={{
+              backgroundColor: '#1F2937',
+              border: 'none',
+              borderRadius: '8px',
+              color: '#fff'
+            }}
+          />
+          <Line 
+            type="monotone" 
+            dataKey={dataKey} 
+            stroke={color} 
+            strokeWidth={2}
+            dot={{ fill: color, r: 4 }}
+            activeDot={{ r: 6 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+```
+
+---
+
+## 6. Core Features Implementation
+
+### 6.1 Dashboard Page Structure
+
+```typescript
+// src/app/dashboard/page.tsx
+import { KPICard } from '@/components/charts/KPICard';
+import { CustomLineChart } from '@/components/charts/LineChart';
+import { getCurrentTenant } from '@/lib/utils/tenant';
+import { prisma } from '@/lib/db/prisma';
+
+export default async function DashboardPage() {
+  const tenant = await getCurrentTenant();
+  
+  // Fetch metrics for this tenant
+  const metrics = await prisma.metric.findMany({
+    where: {
+      automation: {
+        tenantId: tenant.id
+      }
+    },
+    orderBy: { timestamp: 'desc' },
+    take: 100
+  });
+  
+  // Calculate KPIs
+  const totalSavings = metrics
+    .filter(m => m.metricType === 'cost_savings')
+    .reduce((sum, m) => sum + m.value, 0);
+    
+  const totalTimeSaved = metrics
+    .filter(m => m.metricType === 'time_saved')
+    .reduce((sum, m) => sum + m.value, 0);
+  
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+        Dashboard
+      </h1>
+      
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <KPICard
+          title="Total Cost Savings"
+          value={`$${totalSavings.toLocaleString()}`}
+          change={12.5}
+          trend="up"
+        />
+        <KPICard
+          title="Time Saved"
+          value={totalTimeSaved}
+          unit=" hrs"
+          change={8.3}
+          trend="up"
+        />
+        <KPICard
+          title="Active Automations"
+          value={15}
+          change={20}
+          trend="up"
+        />
+        <KPICard
+          title="Uptime"
+          value="99.8"
+          unit="%"
+          change={0.2}
+          trend="up"
+        />
+      </div>
+      
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <CustomLineChart
+          data={[
+            { date: 'Jan', value: 4000 },
+            { date: 'Feb', value: 5200 },
+            { date: 'Mar', value: 6800 },
+            { date: 'Apr', value: 8100 },
+            { date: 'May', value: 9500 },
+          ]}
+          dataKey="value"
+          title="Monthly Cost Savings ($)"
+        />
+        {/* Add more charts */}
+      </div>
+    </div>
+  );
+}
+```
+
+### 6.2 White-Label Settings
+
+```typescript
+// src/app/api/settings/branding/route.ts
+import { NextResponse } from 'next/server';
+import { getCurrentTenant } from '@/lib/utils/tenant';
+import { prisma } from '@/lib/db/prisma';
+
+export async function POST(request: Request) {
+  try {
+    const tenant = await getCurrentTenant();
+    const { logoUrl, primaryColor } = await request.json();
+    
+    const updated = await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        logoUrl,
+        primaryColor
+      }
+    });
+    
+    return NextResponse.json({ success: true, tenant: updated });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Failed to update branding' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+---
+
+## 7. Cursor AI Development Prompts
+
+### 7.1 Initial Setup Prompts
+
+Use these prompts in Cursor AI to accelerate development:
+
+```
+"Create a Next.js 14 project with TypeScript, Tailwind CSS, and Prisma ORM. Set up the folder structure following the App Router pattern with /src/app, /src/components, and /src/lib directories."
+
+"Generate a Prisma schema for a multi-tenant SaaS application with Tenant, User, Dashboard, Automation, and Metric models. Include proper relations and indexes for tenant isolation."
+
+"Create NextAuth configuration with credentials provider, including bcrypt password hashing and session management with role-based access control."
+
+"Build a middleware.ts file that extracts subdomain from request hostname and adds it to headers for tenant resolution."
+
+"Create a utility function getCurrentTenant() that reads the subdomain from headers and fetches the corresponding tenant from the database using Prisma."
+```
+
+### 7.2 Component Generation Prompts
+
+```
+"Create a KPICard React component using TypeScript that displays a title, large value, percentage change with trend indicator, and optional sparkline. Style with Tailwind CSS and use lucide-react for icons."
+
+"Build a responsive sidebar navigation component for a dashboard with links to Dashboard, Automations, Reports, Analytics, and Settings. Include tenant logo at the top and user profile at the bottom."
+
+"Generate a LineChart component using Recharts library that accepts an array of data points and displays them with proper axes, grid, tooltip, and responsive container."
+
+"Create a DashboardLayout component that includes a sidebar, top navigation bar with date range picker, and main content area. Make it responsive with collapsible sidebar on mobile."
+```
+
+### 7.3 API Route Prompts
+
+```
+"Create a Next.js API route at /api/metrics that fetches all metrics for the current tenant, filtered by automation ID and date range query parameters. Include proper error handling and TypeScript types."
+
+"Build an API route for exporting dashboard data to CSV format. Accept tenant context from headers and generate CSV with all automation metrics for the specified date range."
+
+"Generate an API endpoint for creating new automations. Include validation, tenant isolation, and return the created automation with a 201 status code."
+```
+
+---
+
+## 8. Environment Variables
+
+```bash
+# .env.local
+
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/reporting_app"
+
+# Supabase
+SUPABASE_URL="https://your-project.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+
+# NextAuth
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="your-secret-key-here"
+
+# Deployment
+NEXT_PUBLIC_APP_URL="https://portal.youragency.com"
+VERCEL_URL=""
+
+# External APIs (NEVER expose these to client - server-side only)
+ZAPIER_WEBHOOK_URL="https://hooks.zapier.com/..."
+ZAPIER_API_KEY=""
+MAKE_API_KEY=""
+MAKE_WEBHOOK_URL="https://hook.integromat.com/..."
+ANALYTICS_API_KEY=""
+SENDGRID_API_KEY=""
+
+# Note: All external API keys must be stored server-side only
+# Use Next.js API Routes or Server Components to access them
+```
+
+---
+
+## 9. Development Phases
+
+### Phase 1: Core Infrastructure (Week 1-2)
+- [x] Prisma schema and migrations
+- [ ] Next.js project setup with TypeScript
+- [ ] Authentication with NextAuth
+- [ ] Subdomain-based tenant resolution
+- [ ] Basic dashboard layout
+- [ ] External API integration architecture (server-side proxy pattern)
+
+### Phase 2: Data Visualization (Week 3-4)
+- [ ] KPI card components (4-6 cards)
+- [ ] Line chart for trends
+- [ ] Bar chart for comparisons
+- [ ] Gauge chart for goals
+- [ ] Donut chart for proportions
+- [ ] Responsive grid layouts
+
+### Phase 3: Multi-Tenancy & White-Label (Week 5-6)
+- [ ] Tenant settings page
+- [ ] Logo upload functionality
+- [ ] Color customization
+- [ ] Subdomain routing fully functional
+- [ ] Data isolation testing
+
+### Phase 4: Advanced Features (Week 7-8)
+- [ ] Report export (PDF, CSV)
+- [ ] Scheduled reports
+- [ ] Real-time data updates
+- [ ] Mobile optimization
+- [ ] Performance optimization
+
+---
+
+## 10. Testing Checklist
+
+### 10.1 Security Testing
+- [ ] Verify tenant isolation (User A cannot access User B's data)
+- [ ] Test SQL injection prevention
+- [ ] Validate authentication flow
+- [ ] Check password hashing
+- [ ] Test session expiration
+
+### 10.2 Functionality Testing
+- [ ] Dashboard loads with correct tenant data
+- [ ] Charts render with accurate data
+- [ ] KPI calculations are correct
+- [ ] Exports generate properly
+- [ ] Settings save and apply correctly
+
+### 10.3 Performance Testing
+- [ ] Dashboard load time <2 seconds
+- [ ] Chart rendering <500ms
+- [ ] API responses <200ms
+- [ ] Handle 100 concurrent users
+
+---
+
+## 11. Deployment Checklist
+
+### 11.1 Pre-Deployment
+- [ ] Environment variables configured
+- [ ] Database migrations run
+- [ ] SSL certificates configured
+- [ ] DNS records set (A, CNAME for subdomains)
+- [ ] Error monitoring setup (Sentry)
+
+### 11.2 Post-Deployment
+- [ ] Smoke tests on production
+- [ ] Monitor error rates
+- [ ] Check performance metrics
+- [ ] Test subdomain routing
+- [ ] Verify email delivery
+
+---
+
+## 12. Success Criteria
+
+### 12.1 Technical
+✅ Multi-tenant architecture with complete data isolation  
+✅ Sub-2-second dashboard load times  
+✅ Support for 50+ concurrent clients  
+✅ 99.9% uptime
+
+### 12.2 Business
+✅ Reduce reporting time by 90%  
+✅ White-label customization for all clients  
+✅ Automated report generation  
+✅ Real-time performance monitoring
+
+### 12.3 User Experience
+✅ Intuitive navigation (5-second rule compliance)  
+✅ Mobile-responsive design  
+✅ Dark mode support  
+✅ Accessible (WCAG AA compliance)
+
+---
+
+## 13. External API Integration Best Practices
+
+### 13.1 Architecture Pattern
+
+All external API calls should be made **server-side** through Next.js API Routes or Server Components to maintain security and prevent API key exposure.
+
+```
+Client (React) 
+    ↓ HTTP Request
+Next.js API Route/Server Component (secure proxy)
+    ↓ Server-side fetch (API keys hidden)
+External API (Zapier, Make, Analytics, etc.)
+```
+
+### 13.2 Security Requirements
+
+- **Never expose API keys to the client** - All external API calls must happen server-side
+- **Store credentials in environment variables** - Use `.env.local` for sensitive keys
+- **Use HTTPS only** - All external API calls must use HTTPS
+- **Implement authentication** - Use API keys, OAuth tokens, or bearer tokens as required
+
+### 13.3 Implementation Guidelines
+
+**API Route Pattern (Recommended):**
+```typescript
+// app/api/external/[service]/route.ts
+export async function GET(request: Request) {
+  try {
+    const apiKey = process.env.EXTERNAL_API_KEY; // Server-side only
+    const response = await fetch('https://external-api.com/data', {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(5000), // 5s timeout
+      next: { revalidate: 3600 } // Cache for 1 hour
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return Response.json(data);
+  } catch (error) {
+    console.error('External API call failed:', error);
+    return Response.json(
+      { error: 'Failed to fetch data' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+**Server Component Pattern:**
+```typescript
+// app/dashboard/page.tsx
+export default async function Dashboard() {
+  const data = await fetch('https://external-api.com/data', {
+    headers: { 'Authorization': `Bearer ${process.env.API_KEY}` },
+    next: { revalidate: 3600 } // Automatic caching
+  });
+  
+  return <div>{/* render data */}</div>;
+}
+```
+
+### 13.4 Error Handling
+
+- Wrap all API calls in try-catch blocks
+- Check response status codes
+- Implement request timeouts (5-10 seconds)
+- Return meaningful error messages
+- Log errors for monitoring
+
+### 13.5 Caching Strategy
+
+- Use Next.js built-in caching with `next.revalidate`
+- Cache external API responses for 15-60 minutes
+- Use `no-store` for real-time data requirements
+- Implement stale-while-revalidate for better UX
+
+### 13.6 Input Validation
+
+Use Zod schema validation for all API route inputs:
+
+```typescript
+import { z } from 'zod';
+
+const ExternalApiRequestSchema = z.object({
+  automationId: z.string().cuid(),
+  dateRange: z.object({
+    start: z.string().datetime(),
+    end: z.string().datetime(),
+  }),
+});
+
+export async function POST(request: Request) {
+  const body = await request.json();
+  const parsed = ExternalApiRequestSchema.safeParse(body);
+  
+  if (!parsed.success) {
+    return Response.json(
+      { error: 'Invalid input', details: parsed.error },
+      { status: 400 }
+    );
+  }
+  // Process with parsed.data
+}
+```
+
+### 13.7 Rate Limiting
+
+- Implement rate limiting for external API calls
+- Use middleware to track request frequency per tenant
+- Return appropriate HTTP status codes (429 Too Many Requests)
+- Log rate limit violations
+
+### 13.8 Monitoring & Logging
+
+- Log all external API calls (request/response)
+- Monitor API response times
+- Track error rates and failures
+- Set up alerts for external API downtime
+
+### 13.9 External Services Integration
+
+**Potential External APIs:**
+- Automation platforms (Zapier, Make.com webhooks)
+- Analytics services (Google Analytics, Mixpanel)
+- Email services (SendGrid, Postmark)
+- Notification services (Slack, Discord)
+- Cloud storage (AWS S3, Google Cloud Storage)
+
+All integrations must follow the server-side proxy pattern above.
+
+---
+
+## 14. Future Enhancements
+
+- AI-powered insights and predictions
+- Custom report builder (drag-and-drop)
+- Multi-factor authentication (MFA)
+- SSO with Google/Microsoft
+- Custom domain support with automatic SSL
+- Webhook integrations
+- API access for clients
+- Advanced analytics (funnel, cohort analysis)
+- Anomaly detection alerts
+- Collaborative features (comments, annotations)
