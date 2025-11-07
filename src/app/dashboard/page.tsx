@@ -290,11 +290,11 @@ export default function DashboardPage() {
   }, [activeTabId, activeApiId, dateRange.start, dateRange.end, selectedClient]);
 
   if (loading) {
-    return <div className="p-8">Loading...</div>;
+    return <div className="p-12">Loading...</div>;
   }
 
   if (enabledFeatures.length === 0) {
-    return <div className="p-8">No features enabled for this tenant.</div>;
+    return <div className="p-12">No features enabled for this tenant.</div>;
   }
 
   const activeFeature = enabledFeatures.find(f => f.id === activeTabId);
@@ -302,8 +302,8 @@ export default function DashboardPage() {
   if (activeTabId === 'email') {
     if (emailData?.error) {
       return (
-        <div className="p-8">
-          <div className="glass rounded-xl border-red-500/20 p-6 max-w-2xl">
+        <div className="p-12">
+          <div className="glass rounded-xl border-red-500/20 p-8 max-w-2xl">
             <h2 className="text-xl font-semibold text-red-400 mb-2">API Key Not Configured</h2>
             <p className="text-slate-300">{emailData.error}</p>
           </div>
@@ -312,9 +312,9 @@ export default function DashboardPage() {
     }
     if (!emailData) {
       if (isLoadingEmailData) {
-        return <div className="p-8">Loading campaign data...</div>;
+        return <div className="p-12">Loading campaign data...</div>;
       }
-      return <div className="p-8">Error: Failed to load email campaign data</div>;
+      return <div className="p-12">Error: Failed to load email campaign data</div>;
     }
   }
   
@@ -336,13 +336,13 @@ export default function DashboardPage() {
   }
 
   if (!activeFeature || !activeData) {
-    return <div className="p-8">Error: Feature data not found</div>;
+    return <div className="p-12">Error: Feature data not found</div>;
   }
 
   const Icon = activeFeature.icon;
     
   return (
-    <div className="p-4 sm:p-5 lg:p-6">
+    <div className="pt-8 sm:pt-10 lg:pt-12 xl:pt-16 px-12 sm:px-16 lg:px-24 xl:px-32 pb-12 sm:pb-16 lg:pb-24 xl:pb-32">
       {/* Header */}
       <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 mb-4">
         <div>
@@ -660,7 +660,7 @@ export default function DashboardPage() {
               <>
                 {/* Email Metrics Section */}
                 {emailData.metricSections.email && emailData.metricSections.email.metrics.length > 0 && (
-                  <div className="mb-6">
+                  <div className="mb-4">
                     <h2 className="text-lg font-semibold text-white mb-3 px-1">{emailData.metricSections.email.title}</h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       {emailData.metricSections.email.metrics.map((metric: { title: string; value: string | number; comparisonText?: string; icon?: React.ElementType }) => (
@@ -678,7 +678,7 @@ export default function DashboardPage() {
 
                 {/* LinkedIn Metrics Section */}
                 {emailData.metricSections.linkedin && emailData.metricSections.linkedin.metrics.length > 0 && (
-                  <div className="mb-6">
+                  <div className="mb-4">
                     <h2 className="text-lg font-semibold text-white mb-3 px-1">{emailData.metricSections.linkedin.title}</h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       {emailData.metricSections.linkedin.metrics.map((metric: { title: string; value: string | number; comparisonText?: string; icon?: React.ElementType }) => (
@@ -696,7 +696,7 @@ export default function DashboardPage() {
 
                 {/* Campaign Metrics Section */}
                 {emailData.metricSections.campaigns && emailData.metricSections.campaigns.metrics.length > 0 && (
-                  <div className="mb-6">
+                  <div className="mb-4">
                     <h2 className="text-lg font-semibold text-white mb-3 px-1">{emailData.metricSections.campaigns.title}</h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       {emailData.metricSections.campaigns.metrics.map((metric: { title: string; value: string | number; comparisonText?: string; icon?: React.ElementType }) => (
@@ -733,7 +733,7 @@ export default function DashboardPage() {
           <>
             {/* Engagement Metrics Graph */}
             {emailData.engagementMetrics && emailData.engagementMetrics.data && emailData.engagementMetrics.data.length > 0 && (
-              <div className="mb-4">
+              <div className="mb-6">
                 <EngagementMetricsChart
                   title={emailData.engagementMetrics.title}
                   description={emailData.engagementMetrics.description}
@@ -742,7 +742,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            <div className="mb-4">
+            <div className="mb-6">
               <BarChartCard 
                 title={emailData.campaignPerformance.title}
                 description={emailData.campaignPerformance.description}
@@ -754,7 +754,7 @@ export default function DashboardPage() {
 
             {/* Activity Timeline - Lemlist specific */}
             {emailData.activityTimeline && emailData.activityTimeline.data.length > 0 && (
-              <div className="mb-4">
+              <div className="mb-6">
                 <div className="bg-white/5 backdrop-blur-md rounded-xl overflow-hidden border border-white/10 hover:border-purple-500/50 transition-all duration-300 shadow-xl shadow-black/20 hover:shadow-purple-500/10">
                   <div className="flex items-center gap-2 px-4 py-3 border-b border-white/10">
                     <div className="text-base font-semibold text-white">{emailData.activityTimeline.title}</div>
