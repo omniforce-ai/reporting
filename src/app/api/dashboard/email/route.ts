@@ -638,7 +638,7 @@ export async function GET(request: Request) {
         sampleInterestedValues: analyticsResults
           .filter(a => a?.campaign_lead_stats?.interested !== undefined)
           .slice(0, 5)
-          .map(a => ({ id: a?.id, interested: a?.campaign_lead_stats?.interested })),
+          .map((a, index) => ({ id: index, interested: a?.campaign_lead_stats?.interested })),
       });
       const completionRate = calculatePercentage(totals.completed, totals.leads);
       const blockedRate = calculatePercentage(totals.blocked, totals.leads);
