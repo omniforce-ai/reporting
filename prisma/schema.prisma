@@ -26,7 +26,7 @@ model Tenant {
   dashboards    Dashboard[]
   automations   Automation[]
   
-  @@map("tenants")
+  @@map("clients")
 }
 
 model User {

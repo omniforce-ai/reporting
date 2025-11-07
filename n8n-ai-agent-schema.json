@@ -1,0 +1,144 @@
+{
+  "database_schema": {
+    "name": "Energy Management System",
+    "tables": {
+      "buildings": {
+        "primary_key": "building_id",
+        "columns": {
+          "building_id": {"type": "TEXT", "required": true, "description": "Unique building identifier"},
+          "building_name": {"type": "TEXT", "required": true, "description": "Building name"},
+          "address": {"type": "TEXT", "required": true},
+          "city": {"type": "TEXT", "required": true},
+          "country": {"type": "TEXT", "required": true},
+          "client_id": {"type": "TEXT", "required": true},
+          "total_area_sqm": {"type": "NUMERIC", "required": true, "description": "Total area in square meters"},
+          "building_type": {"type": "TEXT", "required": true, "examples": ["Commercial Office", "Mixed-Use", "Industrial Warehouse"]},
+          "construction_year": {"type": "INTEGER", "required": true},
+          "num_floors": {"type": "INTEGER", "required": true},
+          "num_units": {"type": "INTEGER", "required": true},
+          "onboarding_date": {"type": "DATE", "required": true},
+          "completion_status": {"type": "INTEGER", "required": true, "range": "0-100"}
+        },
+        "relationships": {
+          "has_many": ["meters", "tenants", "monthly_summaries", "sustainability_metrics"]
+        }
+      },
+      "meters": {
+        "primary_key": "meter_id",
+        "columns": {
+          "meter_id": {"type": "TEXT", "required": true},
+          "building_id": {"type": "TEXT", "required": true, "foreign_key": "buildings.building_id"},
+          "meter_type": {"type": "TEXT", "required": true, "examples": ["Electricity", "Gas", "Solar Production", "District Heating"]},
+          "tenant_id": {"type": "TEXT", "required": false, "foreign_key": "tenants.tenant_id"},
+          "location": {"type": "TEXT", "required": true},
+          "installation_date": {"type": "DATE", "required": true}
+        },
+        "relationships": {
+          "belongs_to": "buildings",
+          "has_many": ["readings", "anomalies"]
+        }
+      },
+      "tenants": {
+        "primary_key": "tenant_id",
+        "columns": {
+          "tenant_id": {"type": "TEXT", "required": true},
+          "building_id": {"type": "TEXT", "required": true, "foreign_key": "buildings.building_id"},
+          "company_name": {"type": "TEXT", "required": true},
+          "floor": {"type": "INTEGER", "required": true},
+          "unit_number": {"type": "TEXT", "required": true},
+          "area_sqm": {"type": "NUMERIC", "required": true},
+          "lease_start": {"type": "DATE", "required": true},
+          "contact_email": {"type": "TEXT", "required": true},
+          "consent_signed": {"type": "BOOLEAN", "required": true, "default": false},
+          "consent_date": {"type": "DATE", "required": false}
+        },
+        "relationships": {
+          "belongs_to": "buildings",
+          "has_many": ["meters"]
+        }
+      },
+      "readings": {
+        "primary_key": "reading_id",
+        "columns": {
+          "reading_id": {"type": "TEXT", "required": true},
+          "meter_id": {"type": "TEXT", "required": true, "foreign_key": "meters.meter_id"},
+          "timestamp": {"type": "TIMESTAMPTZ", "required": true, "description": "Reading timestamp"},
+          "consumption_kwh": {"type": "NUMERIC", "required": false, "description": "For electricity meters"},
+          "consumption_m3": {"type": "NUMERIC", "required": false, "description": "For gas meters"},
+          "production_kwh": {"type": "NUMERIC", "required": false, "description": "For solar meters"},
+          "unit_price_eur": {"type": "NUMERIC", "required": true},
+          "temperature_celsius": {"type": "NUMERIC", "required": false},
+          "solar_irradiance": {"type": "INTEGER", "required": false, "description": "For solar meters"}
+        },
+        "relationships": {
+          "belongs_to": "meters",
+          "indexes": ["meter_id", "timestamp"]
+        },
+        "note": "One of consumption_kwh, consumption_m3, or production_kwh should be populated based on meter_type"
+      },
+      "anomalies": {
+        "primary_key": "anomaly_id",
+        "columns": {
+          "anomaly_id": {"type": "TEXT", "required": true},
+          "meter_id": {"type": "TEXT", "required": true, "foreign_key": "meters.meter_id"},
+          "detected_at": {"type": "TIMESTAMPTZ", "required": true},
+          "anomaly_type": {"type": "TEXT", "required": true, "examples": ["Consumption Spike", "Production Drop", "Nighttime Usage"]},
+          "severity": {"type": "TEXT", "required": true, "enum": ["Low", "Medium", "High", "Critical"]},
+          "expected_value": {"type": "NUMERIC", "required": true},
+          "actual_value": {"type": "NUMERIC", "required": true},
+          "resolved": {"type": "BOOLEAN", "required": true, "default": false},
+          "resolution_note": {"type": "TEXT", "required": false}
+        },
+        "relationships": {
+          "belongs_to": "meters"
+        }
+      },
+      "monthly_summaries": {
+        "primary_key": "id",
+        "columns": {
+          "id": {"type": "SERIAL", "required": true},
+          "building_id": {"type": "TEXT", "required": true, "foreign_key": "buildings.building_id"},
+          "building_name": {"type": "TEXT", "required": true, "description": "Denormalized for performance"},
+          "year": {"type": "INTEGER", "required": true},
+          "month": {"type": "INTEGER", "required": true, "range": "1-12"},
+          "total_consumption_kwh": {"type": "NUMERIC", "required": true},
+          "total_cost_eur": {"type": "NUMERIC", "required": true},
+          "avg_daily_kwh": {"type": "NUMERIC", "required": true},
+          "peak_demand_kw": {"type": "NUMERIC", "required": true},
+          "comparison_prev_month_pct": {"type": "NUMERIC", "required": false, "description": "Percentage change from previous month"},
+          "co2_emissions_kg": {"type": "NUMERIC", "required": true}
+        },
+        "relationships": {
+          "belongs_to": "buildings"
+        },
+        "unique_constraint": ["building_id", "year", "month"]
+      },
+      "sustainability_metrics": {
+        "primary_key": "id",
+        "columns": {
+          "id": {"type": "SERIAL", "required": true},
+          "building_id": {"type": "TEXT", "required": true, "foreign_key": "buildings.building_id"},
+          "metric_date": {"type": "DATE", "required": true},
+          "energy_intensity_kwh_sqm": {"type": "NUMERIC", "required": true},
+          "renewable_percentage": {"type": "NUMERIC", "required": true},
+          "esg_score": {"type": "INTEGER", "required": true},
+          "carbon_intensity_kg_sqm": {"type": "NUMERIC", "required": true}
+        },
+        "relationships": {
+          "belongs_to": "buildings"
+        },
+        "unique_constraint": ["building_id", "metric_date"]
+      }
+    },
+    "common_queries": {
+      "get_building": "SELECT * FROM buildings WHERE building_id = ?",
+      "get_building_meters": "SELECT * FROM meters WHERE building_id = ?",
+      "get_recent_readings": "SELECT * FROM readings WHERE meter_id = ? AND timestamp >= NOW() - INTERVAL '7 days' ORDER BY timestamp DESC",
+      "get_unresolved_anomalies": "SELECT * FROM anomalies WHERE resolved = false ORDER BY detected_at DESC",
+      "get_monthly_summary": "SELECT * FROM monthly_summaries WHERE building_id = ? AND year = ? AND month = ?"
+    }
+  }
+}
+
+
+

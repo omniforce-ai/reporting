@@ -4,7 +4,7 @@ import { supabase } from '@/lib/db/supabase';
 async function getTenantFromSupabase(subdomain: string) {
   try {
     const { data, error } = await supabase
-      .from('tenants')
+      .from('clients')
       .select('*')
       .eq('subdomain', subdomain)
       .single();
@@ -65,7 +65,7 @@ async function getTenantFromSupabase(subdomain: string) {
 export async function getAllTenantsFromSupabase() {
   try {
     const { data, error } = await supabase
-      .from('tenants')
+      .from('clients')
       .select('*')
       .limit(100);
 

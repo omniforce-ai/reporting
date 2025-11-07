@@ -5,6 +5,7 @@
 **Base URL:** `https://server.smartlead.ai/api/v1`
 
 **Official Documentation:**
+
 - [Full API Documentation (Help Center)](https://helpcenter.smartlead.ai/en/articles/125-full-api-documentation)
 - [Developer Documentation](https://api.smartlead.ai/)
 - [API Authentication Guide](https://api.smartlead.ai/reference/authentication)
@@ -36,9 +37,11 @@ All API requests require the API key to be attached as a query parameter:
 ## Core Concepts
 
 ### Campaign
+
 A campaign refers to an outreach sequence you want to run to a list of leads with certain conditions.
 
 ### Lead
+
 A lead is the recipient of your email / the person you're trying to contact. This is the person you provide value to with your products/services.
 
 ### Lead Status
@@ -49,6 +52,7 @@ A lead is the recipient of your email / the person you're trying to contact. Thi
 - `INPROGRESS`: The lead has last received atleast one email in the sequence.
 
 ### Campaign Status
+
 - `DRAFTED`
 - `ACTIVE`
 - `COMPLETED`
@@ -56,6 +60,7 @@ A lead is the recipient of your email / the person you're trying to contact. Thi
 - `PAUSED`
 
 ### Webhook Event Types
+
 - `EMAIL_SENT`
 - `EMAIL_OPEN`
 - `EMAIL_LINK_CLICK`
@@ -70,17 +75,21 @@ A lead is the recipient of your email / the person you're trying to contact. Thi
 ### Campaigns
 
 #### List All Campaigns
+
 **GET** `/campaigns`
 
 **Query Parameters:**
+
 - `api_key` (required) - Your Smartlead API key
 
 **Example:**
+
 ```bash
 curl "https://server.smartlead.ai/api/v1/campaigns?api_key=YOUR_API_KEY"
 ```
 
 **Response:** Returns a JSON array of campaign objects:
+
 ```json
 [
   {
@@ -104,25 +113,57 @@ curl "https://server.smartlead.ai/api/v1/campaigns?api_key=YOUR_API_KEY"
 ```
 
 #### Get Campaign Analytics
+
 **GET** `/campaigns/{campaign_id}/analytics`
 
 **Query Parameters:**
+
 - `api_key` (required) - Your Smartlead API key
 
 **Example:**
+
 ```bash
 curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_key=YOUR_API_KEY"
 ```
 
 **Response:** Returns campaign analytics including open rates, bounce rates, click-through rates, and email metrics.
 
+#### Get Campaign Statistics by Date Range
+
+**GET** `/campaigns/{campaign_id}/statistics`
+
+**Query Parameters:**
+
+- `api_key` (required) - Your Smartlead API key
+- `start_date` (optional) - Start date in YYYY-MM-DD format
+- `end_date` (optional) - End date in YYYY-MM-DD format
+
+**Example:**
+
+```bash
+curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/statistics?api_key=YOUR_API_KEY&start_date=2025-01-01&end_date=2025-01-31"
+```
+
+**Response:** Returns campaign statistics filtered by date range. Response structure may differ from `/analytics` endpoint. Fields typically include:
+
+- `sent_count` or `unique_sent_count` or `total_sent` - Number of emails sent
+- `open_count` or `unique_open_count` or `total_opens` - Number of opens
+- `click_count` or `unique_click_count` or `total_clicks` - Number of clicks
+- `reply_count` - Number of replies
+- `bounce_count` - Number of bounces
+
+**Note:** The `/campaigns/{campaign_id}/analytics-by-date` endpoint is **DEPRECATED**. Use `/statistics` endpoint instead.
+
 #### Get Campaign By ID
+
 **GET** `/campaigns/{campaign_id}`
 
 **Query Parameters:**
+
 - `api_key` (required) - Your Smartlead API key
 
 **Response:**
+
 ```json
 {
   "id": 372,
@@ -145,9 +186,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 #### Create Campaign
+
 **POST** `/campaigns/create`
 
 **Request Body:**
+
 ```json
 {
   "name": "Test email campaign",
@@ -156,6 +199,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Response:**
+
 ```json
 {
   "ok": true,
@@ -166,9 +210,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 #### Update Campaign Schedule
+
 **POST** `/campaigns/{campaign_id}/schedule`
 
 **Request Body:**
+
 ```json
 {
   "timezone": "America/Los_Angeles",
@@ -182,6 +228,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Response:**
+
 ```json
 {
   "ok": true
@@ -189,6 +236,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Errors (400):**
+
 - `{"error":"Invalid timezone - {timezone}"}`
 - `{"error":"Invalid start_hour - {startHour}"}`
 - `{"error":"Invalid end_hour - {endHour}"}`
@@ -197,9 +245,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 **Note:** Use timezones from [IANA Timezone Database](https://www.iana.org/time-zones)
 
 #### Update Campaign General Settings
+
 **POST** `/campaigns/{campaign_id}/settings`
 
 **Request Body:**
+
 ```json
 {
   "track_settings": ["DONT_TRACK_EMAIL_OPEN"],
@@ -213,11 +263,13 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Allowed Values:**
+
 - `track_settings`: `DONT_TRACK_EMAIL_OPEN` | `DONT_TRACK_LINK_CLICK` | `DONT_TRACK_REPLY_TO_AN_EMAIL`
 - `stop_lead_settings`: `CLICK_ON_A_LINK` | `OPEN_AN_EMAIL` | `REPLY_TO_AN_EMAIL`
 - `follow_up_percentage`: 0-100
 
 **Response:**
+
 ```json
 {
   "ok": true
@@ -225,18 +277,22 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Errors (400):**
+
 - `{"error":"Invalid track_settings value - {trackSettings}"}`
 - `{"error":"Invalid stop_lead_settings value - {stopLeadSettings}"}`
 
 #### Fetch Campaign Sequence
+
 **GET** `/campaigns/{campaign_id}/sequences`
 
 **Response:** Returns campaign sequence data (JSON object)
 
 #### Add Leads to Campaign
+
 **POST** `/campaigns/{campaign_id}/leads/add`
 
 **Request Body:**
+
 ```json
 {
   "first_name": "Cristiano",
@@ -258,6 +314,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 **Note:** `custom_fields` supports max 20 fields
 
 **Response:**
+
 ```json
 {
   "ok": true
@@ -265,11 +322,13 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 #### Update Lead
+
 **POST** `/campaigns/{campaign_id}/leads/{lead_id}/update`
 
 **Request Body:** Same structure as Add Leads
 
 **Response:**
+
 ```json
 {
   "ok": true
@@ -277,9 +336,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 #### Update Lead Category
+
 **POST** `/campaigns/{campaign_id}/leads/{lead_id}/category`
 
 **Request Body:**
+
 ```json
 {
   "category_id": 143,
@@ -290,6 +351,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 **Note:** `pause_lead` defaults to `false` if not provided
 
 **Response:**
+
 ```json
 {
   "ok": true
@@ -297,9 +359,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 #### Patch Campaign Status
+
 **POST** `/campaigns/{campaign_id}/status`
 
 **Request Body:**
+
 ```json
 {
   "status": "PAUSED"
@@ -309,6 +373,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 **Allowed Values:** `PAUSED` | `STOPPED` | `START`
 
 **Response:**
+
 ```json
 {
   "ok": true
@@ -316,9 +381,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 #### Fetch Webhooks By Campaign ID
+
 **GET** `/campaigns/{campaign_id}/webhooks`
 
 **Response:**
+
 ```json
 {
   "id": 44,
@@ -337,14 +404,17 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Error (404):**
+
 ```json
 {"error":"Campaign not found - Invalid campaign_id."}
 ```
 
 #### Add / Update Campaign Webhook
+
 **POST** `/campaigns/{campaign_id}/webhooks`
 
 **Request Body:**
+
 ```json
 {
   "id": 217,
@@ -362,6 +432,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 **Note:** Set `id` to `null` or omit it to create a new webhook
 
 **Response:**
+
 ```json
 {
   "ok": true,
@@ -378,14 +449,17 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Errors (400):**
+
 - `{"error":"Invalid webhook_url - {webhookUrl}"}`
 - `{"error":"Invalid event_types - {eachEventType}"}`
 - `{"error":"Invalid category - {eachCategory}"}`
 
 #### Delete Campaign Webhook
+
 **DELETE** `/campaigns/{campaign_id}/webhooks`
 
 **Request Body:**
+
 ```json
 {
   "id": 217
@@ -393,6 +467,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Response:**
+
 ```json
 {
   "ok": true
@@ -402,9 +477,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ### Clients
 
 #### Add Client To System
+
 **POST** `/client/save`
 
 **Request Body:**
+
 ```json
 {
   "name": "Ramesh Kumar",
@@ -417,6 +494,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Note:** For full access, set:
+
 ```json
 {
   "permission": ["full_access"]
@@ -424,6 +502,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Response:**
+
 ```json
 {
   "ok": true,
@@ -435,9 +514,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 #### Fetch All Clients
+
 **GET** `/client/`
 
 **Response:**
+
 ```json
 [
   {
@@ -460,9 +541,11 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ### Email Accounts
 
 #### Reconnect Failed Email Accounts
+
 **POST** `/email-accounts/reconnect-failed-email-accounts`
 
 **Request Body:**
+
 ```json
 {}
 ```
@@ -470,6 +553,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 **Rate Limit:** 3 times per 24 hour period
 
 **Response:**
+
 ```json
 {
   "ok": true,
@@ -478,6 +562,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Error (406 - NOT_ACCEPTABLE):**
+
 ```json
 {
   "ok": true,
@@ -486,6 +571,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/analytics?api_k
 ```
 
 **Error (404 - NOT_FOUND):**
+
 ```json
 {
   "ok": true,
@@ -506,6 +592,7 @@ curl "https://server.smartlead.ai/api/v1/campaigns?api_key=API_KEY"
 ## Error Handling
 
 All errors follow this format:
+
 ```json
 {
   "error": "Error message description"
@@ -513,6 +600,7 @@ All errors follow this format:
 ```
 
 Common HTTP status codes:
+
 - `400` - Bad Request (invalid parameters)
 - `404` - Not Found (resource doesn't exist)
 - `406` - Not Acceptable (rate limit exceeded)
@@ -540,4 +628,3 @@ Common HTTP status codes:
 - **Help Center:** [helpcenter.smartlead.ai](https://helpcenter.smartlead.ai)
 - **Developer Portal:** [api.smartlead.ai](https://api.smartlead.ai)
 - **IANA Timezone Database:** [iana.org/time-zones](https://www.iana.org/time-zones)
-

@@ -43,12 +43,18 @@ function calculatePercentage(value: number, total: number): number {
   return Math.round((value / total) * 100 * 10) / 10;
 }
 
-function extractAnalyticsValue(analytics: CampaignAnalytics | any, ...keys: (keyof CampaignAnalytics)[]): number {
+function extractAnalyticsValue(analytics: CampaignAnalytics | any, ...keys: string[]): number {
+  if (!analytics) return 0;
+  
   for (const key of keys) {
     const value = analytics[key];
+    if (value === null || value === undefined) continue;
     if (typeof value === 'number') return value;
     if (typeof value === 'string') {
-      const parsed = parseInt(value, 10);
+      // Handle empty strings, "null", "undefined", etc.
+      const trimmed = value.trim();
+      if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') continue;
+      const parsed = parseInt(trimmed, 10);
       if (!isNaN(parsed)) return parsed;
     }
   }
@@ -59,7 +65,7 @@ function getEmailMetrics(analytics: any) {
   return {
     emailsSent: extractAnalyticsValue(
       analytics,
-      'sent_count', 'total_emails_sent', 'emails_sent', 'sent'
+      'sent_count', 'unique_sent_count', 'total_emails_sent', 'emails_sent', 'sent'
     ),
     // Prefer unique_open_count for accurate open rates (one person = one open)
     emailsOpened: extractAnalyticsValue(
@@ -75,9 +81,22 @@ function getEmailMetrics(analytics: any) {
       analytics,
       'reply_count', 'total_replies', 'replies'
     ),
+    // Positive replies: use campaign_lead_stats.interested from API response
+    // Check if interested exists first (could be 0, which is falsy but valid)
+    positiveReplies: (analytics.campaign_lead_stats && 'interested' in analytics.campaign_lead_stats)
+      ? parseInt(String(analytics.campaign_lead_stats.interested), 10)
+      : extractAnalyticsValue(
+          analytics,
+          'positive_reply_count', 'interested_reply_count', 'positive_replies', 'interested_replies',
+          'positive_categorized_count', 'interested_count'
+        ),
     bounced: extractAnalyticsValue(
       analytics,
       'bounce_count', 'total_bounced', 'bounced'
+    ),
+    unsubscribed: extractAnalyticsValue(
+      analytics,
+      'unsubscribe_count', 'unsubscribed_count', 'total_unsubscribed', 'unsubscribed'
     ),
     leads: (analytics.campaign_lead_stats?.total ? parseInt(String(analytics.campaign_lead_stats.total), 10) : 0) || extractAnalyticsValue(analytics, 'total_count', 'total_leads', 'leads'),
     completed: extractAnalyticsValue(
@@ -91,14 +110,25 @@ function getEmailMetrics(analytics: any) {
   };
 }
 
-async function fetchCampaignAnalytics(
+async function fetchCampaignAnalyticsByDateRange(
   campaignId: number,
   apiKey: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  startDate: string,
+  endDate: string
 ): Promise<CampaignAnalytics | null> {
   try {
+    const params = new URLSearchParams({
+      api_key: apiKey,
+      start_date: startDate,
+      end_date: endDate,
+    });
+    
+    const endpoint = `${SMARTLEAD_BASE_URL}/campaigns/${campaignId}/analytics-by-date`;
+    const url = `${endpoint}?${params.toString()}`;
+    
     const response = await fetch(
-      `${SMARTLEAD_BASE_URL}/campaigns/${campaignId}/analytics?api_key=${encodeURIComponent(apiKey)}`,
+      url,
       {
         signal,
         headers: {
@@ -110,13 +140,245 @@ async function fetchCampaignAnalytics(
     );
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Smartlead API error for campaign ${campaignId} (${startDate} to ${endDate}):`, response.status, errorText);
       return null;
     }
 
-    return await response.json();
+    const data = await response.json();
+    let analyticsData = Array.isArray(data) ? (data.length > 0 ? data[0] : null) : data;
+    
+    // /analytics-by-date doesn't return campaign_lead_stats, but we need interested count
+    // ALWAYS fetch from /analytics endpoint and merge the interested count when using /analytics-by-date
+    // Note: This gives all-time interested count, not date-filtered (API limitation)
+    // Check if campaign_lead_stats is missing or empty (which /analytics-by-date returns)
+    const needsMerge = !analyticsData?.campaign_lead_stats || 
+                      Object.keys(analyticsData.campaign_lead_stats || {}).length === 0 ||
+                      analyticsData.campaign_lead_stats.interested === undefined;
+    
+    if (needsMerge) {
+      try {
+        const allTimeParams = new URLSearchParams({ api_key: apiKey });
+        const allTimeEndpoint = `${SMARTLEAD_BASE_URL}/campaigns/${campaignId}/analytics`;
+        const allTimeUrl = `${allTimeEndpoint}?${allTimeParams.toString()}`;
+        
+        const allTimeResponse = await fetch(allTimeUrl, {
+          signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Omniforce-Reporting/1.0',
+          },
+          next: { revalidate: CACHE_REVALIDATE },
+        });
+        
+        if (allTimeResponse.ok) {
+          const allTimeData = await allTimeResponse.json();
+          const allTimeAnalytics = Array.isArray(allTimeData) ? (allTimeData.length > 0 ? allTimeData[0] : null) : allTimeData;
+          
+          // Merge campaign_lead_stats.interested from all-time analytics
+          if (allTimeAnalytics?.campaign_lead_stats) {
+            if (!analyticsData.campaign_lead_stats) {
+              analyticsData.campaign_lead_stats = {};
+            }
+            // Include interested count (0 is valid - means no positive replies yet)
+            const interestedValue = allTimeAnalytics.campaign_lead_stats.interested;
+            analyticsData.campaign_lead_stats.interested = (interestedValue !== undefined && interestedValue !== null) ? parseInt(String(interestedValue), 10) : 0;
+            
+            // Also include total for leads calculation
+            if (analyticsData.campaign_lead_stats.total === undefined || analyticsData.campaign_lead_stats.total === null) {
+              analyticsData.campaign_lead_stats.total = allTimeAnalytics.campaign_lead_stats.total || 0;
+            }
+            
+            console.log(`[DEBUG] Merged interested count for campaign ${campaignId}:`, {
+              fromAllTime: allTimeAnalytics.campaign_lead_stats.interested,
+              mergedValue: analyticsData.campaign_lead_stats.interested,
+            });
+          }
+        }
+      } catch (mergeError) {
+        // If merge fails, continue with date-filtered data only
+        console.warn(`[WARN] Could not merge campaign_lead_stats for campaign ${campaignId}:`, mergeError);
+      }
+    } else {
+      console.log(`[DEBUG] Campaign ${campaignId} already has campaign_lead_stats.interested:`, analyticsData.campaign_lead_stats.interested);
+    }
+    
+    return analyticsData;
+  } catch (error) {
+    if (error instanceof Error && error.name !== 'AbortError') {
+      console.error(`Error fetching analytics for campaign ${campaignId} (${startDate} to ${endDate}):`, error);
+    }
+    return null;
+  }
+}
+
+async function fetchCampaignAnalytics(
+  campaignId: number,
+  apiKey: string,
+  signal: AbortSignal,
+  startDate?: string,
+  endDate?: string
+): Promise<CampaignAnalytics | null> {
+  try {
+    // If no date range, use all-time analytics
+    if (!startDate || !endDate) {
+      const params = new URLSearchParams({
+        api_key: apiKey,
+      });
+      const endpoint = `${SMARTLEAD_BASE_URL}/campaigns/${campaignId}/analytics`;
+      const url = `${endpoint}?${params.toString()}`;
+      
+      const response = await fetch(
+        url,
+        {
+          signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Omniforce-Reporting/1.0',
+          },
+          next: { revalidate: CACHE_REVALIDATE },
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Smartlead API error for campaign ${campaignId}:`, response.status, errorText);
+        return null;
+      }
+
+      const data = await response.json();
+      const analyticsData = Array.isArray(data) ? (data.length > 0 ? data[0] : null) : data;
+      return analyticsData;
+    }
+
+    // For date ranges, always use /analytics-by-date
+    // If range > 30 days, split into multiple 30-day chunks and aggregate
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (daysDiff <= 30) {
+      // Single call for ranges <= 30 days
+      return await fetchCampaignAnalyticsByDateRange(campaignId, apiKey, signal, startDate, endDate);
+    } else {
+      // Split into 30-day chunks and aggregate
+      console.log(`[INFO] Date range ${daysDiff} days exceeds 30-day limit. Splitting into chunks for campaign ${campaignId}`);
+      
+      const chunks: Array<{ start: string; end: string }> = [];
+      let currentStart = new Date(start);
+      
+      while (currentStart < end) {
+        const chunkEnd = new Date(currentStart);
+        chunkEnd.setDate(chunkEnd.getDate() + 29); // 30-day chunk (0-29 = 30 days)
+        
+        if (chunkEnd > end) {
+          chunkEnd.setTime(end.getTime());
+        }
+        
+        chunks.push({
+          start: currentStart.toISOString().split('T')[0],
+          end: chunkEnd.toISOString().split('T')[0],
+        });
+        
+        currentStart = new Date(chunkEnd);
+        currentStart.setDate(currentStart.getDate() + 1);
+      }
+      
+      // Fetch all chunks in parallel
+      const chunkResults = await Promise.allSettled(
+        chunks.map(chunk => 
+          fetchCampaignAnalyticsByDateRange(campaignId, apiKey, signal, chunk.start, chunk.end)
+        )
+      );
+      
+      // Aggregate results from all chunks
+      const validResults = chunkResults
+        .filter((r): r is PromiseFulfilledResult<CampaignAnalytics | null> => 
+          r.status === 'fulfilled' && r.value !== null
+        )
+        .map(r => r.value!);
+      
+      if (validResults.length === 0) {
+        console.warn(`[WARN] No valid data from any chunk for campaign ${campaignId}`);
+        return null;
+      }
+      
+      // Aggregate metrics from all chunks
+      const aggregated: any = {
+        sent_count: 0,
+        open_count: 0,
+        unique_open_count: 0,
+        click_count: 0,
+        unique_click_count: 0,
+        reply_count: 0,
+        bounce_count: 0,
+        unsubscribe_count: 0,
+        block_count: 0,
+        total_count: 0,
+        drafted_count: 0,
+        campaign_lead_stats: {
+          total: 0,
+          blocked: 0,
+          stopped: 0,
+          completed: 0,
+          inprogress: 0,
+          notStarted: 0,
+          interested: 0,
+        },
+      };
+      
+      for (const result of validResults) {
+        aggregated.sent_count += extractAnalyticsValue(result, 'sent_count') || 0;
+        aggregated.open_count += extractAnalyticsValue(result, 'open_count') || 0;
+        aggregated.unique_open_count += extractAnalyticsValue(result, 'unique_open_count') || 0;
+        aggregated.click_count += extractAnalyticsValue(result, 'click_count') || 0;
+        aggregated.unique_click_count += extractAnalyticsValue(result, 'unique_click_count') || 0;
+        aggregated.reply_count += extractAnalyticsValue(result, 'reply_count') || 0;
+        aggregated.bounce_count += extractAnalyticsValue(result, 'bounce_count') || 0;
+        aggregated.unsubscribe_count += extractAnalyticsValue(result, 'unsubscribe_count', 'unsubscribed_count') || 0;
+        aggregated.block_count += extractAnalyticsValue(result, 'block_count') || 0;
+        
+        // For lead stats, take max values (not sum) as they represent total leads, not per-period
+        if (result.campaign_lead_stats) {
+          aggregated.campaign_lead_stats.total = Math.max(
+            aggregated.campaign_lead_stats.total,
+            extractAnalyticsValue(result.campaign_lead_stats, 'total') || 0
+          );
+          aggregated.campaign_lead_stats.completed = Math.max(
+            aggregated.campaign_lead_stats.completed,
+            extractAnalyticsValue(result.campaign_lead_stats, 'completed') || 0
+          );
+          aggregated.campaign_lead_stats.blocked = Math.max(
+            aggregated.campaign_lead_stats.blocked,
+            extractAnalyticsValue(result.campaign_lead_stats, 'blocked') || 0
+          );
+          // Interested count should be summed across chunks (each chunk may have different interested leads)
+          // However, since /analytics-by-date doesn't provide this, we use the merged all-time value
+          // which is already included from the merge operation in fetchCampaignAnalyticsByDateRange
+          const chunkInterested = extractAnalyticsValue(result.campaign_lead_stats, 'interested') || 0;
+          // Use max because interested is a cumulative count of total leads marked as interested
+          // Not a per-period metric, so we want the maximum value across all chunks
+          aggregated.campaign_lead_stats.interested = Math.max(
+            aggregated.campaign_lead_stats.interested,
+            chunkInterested
+          );
+        }
+      }
+      
+      // Convert aggregated numbers to strings to match API format
+      aggregated.sent_count = String(aggregated.sent_count);
+      aggregated.open_count = String(aggregated.open_count);
+      aggregated.reply_count = String(aggregated.reply_count);
+      aggregated.bounce_count = String(aggregated.bounce_count);
+      
+      return aggregated;
+    }
   } catch (error) {
     if (error instanceof Error && error.name !== 'AbortError') {
       console.error(`Error fetching analytics for campaign ${campaignId}:`, error);
+      if (startDate && endDate) {
+        console.error(`Date range: ${startDate} to ${endDate}`);
+      }
     }
     return null;
   }
@@ -125,14 +387,16 @@ async function fetchCampaignAnalytics(
 async function batchFetchAnalytics(
   campaigns: Campaign[],
   apiKey: string,
-  signal: AbortSignal
-): Promise<CampaignAnalytics[]> {
+  signal: AbortSignal,
+  startDate?: string,
+  endDate?: string
+): Promise<(CampaignAnalytics | null)[]> {
   const results: (CampaignAnalytics | null)[] = [];
   
   for (let i = 0; i < campaigns.length; i += MAX_CONCURRENT_REQUESTS) {
     const batch = campaigns.slice(i, i + MAX_CONCURRENT_REQUESTS);
     const batchPromises = batch.map(campaign => 
-      fetchCampaignAnalytics(campaign.id, apiKey, signal)
+      fetchCampaignAnalytics(campaign.id, apiKey, signal, startDate, endDate)
     );
     
     const batchResults = await Promise.allSettled(batchPromises);
@@ -147,13 +411,17 @@ async function batchFetchAnalytics(
     }
   }
   
-  return results.filter((r): r is CampaignAnalytics => r !== null);
+  // Return results maintaining index alignment with campaigns array
+  // Do NOT filter nulls here - keep them so indices match
+  return results;
 }
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const clientId = searchParams.get('client') || undefined;
+    const startDate = searchParams.get('startDate') || undefined;
+    const endDate = searchParams.get('endDate') || undefined;
     const tenant = await getCurrentTenant(clientId || undefined);
     
     if (!tenant) {
@@ -211,34 +479,43 @@ export async function GET(request: Request) {
         return NextResponse.json({
           data: {
             metrics: [
-              { title: 'Emails Processed', value: '0', comparisonText: 'No campaigns' },
-              { title: 'Emails Escalated', value: '0', comparisonText: 'No campaigns' },
-              { title: 'Avg. Response Time', value: 'N/A', comparisonText: 'No data' },
-              { title: 'Categorization Accuracy', value: '0%', comparisonText: 'No data' },
+              { title: 'Emails Sent', value: '0', comparisonText: '0 Leads (Active + Inactive)' },
+              { title: 'Opened', value: '0', comparisonText: '0.00% Open Rate' },
+              { title: 'Replied', value: '0', comparisonText: '0.00% Reply Rate' },
+              { title: 'Positive Reply', value: '0', comparisonText: '0.00% Positive Reply Rate' },
+              { title: 'Bounced', value: '0', comparisonText: '0.00% Bounce Rate' },
             ],
-            completionRate: { title: 'Completion rate', percentage: 0 },
-            feedbackScore: { title: 'Open Rate', percentage: 0, positiveCount: 0, negativeCount: 0 },
-            evaluationHistory: {
-              title: 'Open Rate History',
-              description: 'Showing email open rates over time',
-              data: [],
-            },
-            tasksHistory: {
-              title: 'Email Volume',
-              description: 'Showing processed and bounced email counts',
+            engagementMetrics: {
+              title: 'Email Engagement Metrics',
+              description: 'The data is displayed in Etc/GMT(UTC)',
               data: [],
             },
           },
         });
       }
 
+      if (startDate && endDate) {
+        console.log(`Fetching campaign statistics for date range: ${startDate} to ${endDate}`);
+      } else {
+        console.log('Fetching all-time campaign analytics (no date range specified)');
+      }
+      
       const analyticsResults = await batchFetchAnalytics(
         campaigns,
         smartleadApiKey,
-        controller.signal
+        controller.signal,
+        startDate,
+        endDate
       );
 
       clearTimeout(timeoutId);
+      
+      // Debug: Check how many results we got
+      console.log(`[DEBUG] Total campaigns: ${campaigns.length}, Analytics results: ${analyticsResults.length}`);
+      if (startDate && endDate && analyticsResults.length === 0) {
+        console.error(`[ERROR] No analytics results returned for date range ${startDate} to ${endDate}`);
+        console.error(`[ERROR] First few campaigns:`, campaigns.slice(0, 3).map(c => ({ id: c.id, name: c.name })));
+      }
 
       // Calculate totals and per-campaign metrics
       const campaignMetrics = campaigns.map((campaign, index) => {
@@ -248,32 +525,42 @@ export async function GET(request: Request) {
             name: campaign.name,
             emailsSent: 0,
             openRate: 0,
-            clickRate: 0,
             replyRate: 0,
           };
         }
         const metrics = getEmailMetrics(analytics);
         const openRate = calculatePercentage(metrics.emailsOpened, metrics.emailsSent);
-        const clickRate = calculatePercentage(metrics.emailsClicked, metrics.emailsSent);
         const replyRate = calculatePercentage(metrics.replies, metrics.emailsSent);
         return {
           name: campaign.name.length > 30 ? campaign.name.substring(0, 30) + '...' : campaign.name,
           emailsSent: metrics.emailsSent,
           openRate,
-          clickRate,
           replyRate,
         };
       }).filter(c => c.emailsSent > 0);
 
       const totals = analyticsResults.reduce(
-        (acc, analytics) => {
+        (acc: {
+          emailsSent: number;
+          emailsOpened: number;
+          emailsClicked: number;
+          replies: number;
+          positiveReplies: number;
+          bounced: number;
+          unsubscribed: number;
+          leads: number;
+          completed: number;
+          blocked: number;
+        }, analytics) => {
           if (!analytics) return acc;
           const metrics = getEmailMetrics(analytics);
           acc.emailsSent += metrics.emailsSent;
           acc.emailsOpened += metrics.emailsOpened;
           acc.emailsClicked += metrics.emailsClicked;
           acc.replies += metrics.replies;
+          acc.positiveReplies += metrics.positiveReplies;
           acc.bounced += metrics.bounced;
+          acc.unsubscribed += metrics.unsubscribed;
           acc.leads += metrics.leads;
           acc.completed += metrics.completed;
           acc.blocked += metrics.blocked;
@@ -284,7 +571,9 @@ export async function GET(request: Request) {
           emailsOpened: 0,
           emailsClicked: 0,
           replies: 0,
+          positiveReplies: 0,
           bounced: 0,
+          unsubscribed: 0,
           leads: 0,
           completed: 0,
           blocked: 0,
@@ -297,87 +586,132 @@ export async function GET(request: Request) {
       const openRate = emailsDelivered > 0 
         ? calculatePercentage(totals.emailsOpened, emailsDelivered)
         : calculatePercentage(totals.emailsOpened, totals.emailsSent);
-      const clickRate = emailsDelivered > 0
-        ? calculatePercentage(totals.emailsClicked, emailsDelivered)
-        : calculatePercentage(totals.emailsClicked, totals.emailsSent);
       const replyRate = emailsDelivered > 0
         ? calculatePercentage(totals.replies, emailsDelivered)
         : calculatePercentage(totals.replies, totals.emailsSent);
+      // Positive reply count - use actual value from API (0 is valid if no positive replies)
+      const positiveReplyCount = totals.positiveReplies;
+      const positiveReplyRate = totals.replies > 0
+        ? calculatePercentage(positiveReplyCount, totals.replies)
+        : 0;
+      const bounceRate = totals.emailsSent > 0
+        ? calculatePercentage(totals.bounced, totals.emailsSent)
+        : 0;
       
       console.log('Data Verification:', {
         emailsSent: totals.emailsSent,
         emailsDelivered,
         emailsOpened: totals.emailsOpened,
-        emailsClicked: totals.emailsClicked,
         replies: totals.replies,
+        positiveRepliesTotal: totals.positiveReplies,
+        positiveReplyCount: positiveReplyCount,
         bounced: totals.bounced,
+        unsubscribed: totals.unsubscribed,
         calculatedOpenRate: openRate,
-        calculatedClickRate: clickRate,
         calculatedReplyRate: replyRate,
+        calculatedPositiveReplyRate: positiveReplyRate,
+        calculatedBounceRate: bounceRate,
+        analyticsResultsCount: analyticsResults.length,
+        analyticsResultsWithStats: analyticsResults.filter(a => a?.campaign_lead_stats).length,
+        sampleInterestedValues: analyticsResults
+          .filter(a => a?.campaign_lead_stats?.interested !== undefined)
+          .slice(0, 5)
+          .map(a => ({ id: a?.id, interested: a?.campaign_lead_stats?.interested })),
       });
-      const bounceRate = calculatePercentage(totals.bounced, totals.emailsSent);
       const completionRate = calculatePercentage(totals.completed, totals.leads);
       const blockedRate = calculatePercentage(totals.blocked, totals.leads);
       
-      // Generate time-series data (simulated - using current rates as averages)
-      const last7Days = Array.from({ length: 7 }, (_, i) => ({
-        name: `Day ${i + 1}`,
-        openRate: openRate + (Math.random() * 10 - 5), // Simulate variation
-        clickRate: clickRate + (Math.random() * 5 - 2.5),
-        replyRate: replyRate + (Math.random() * 2 - 1),
-      }));
-
-      const last30Days = Array.from({ length: 30 }, (_, i) => ({
-        name: `${i + 1}`,
-        openRate: openRate + (Math.random() * 10 - 5),
-        clickRate: clickRate + (Math.random() * 5 - 2.5),
-        replyRate: replyRate + (Math.random() * 2 - 1),
-      }));
+      // Calculate total leads (Active + Inactive)
+      const totalLeads = totals.leads || (totals.emailsSent > 0 ? totals.emailsSent : 0);
+      
+      // Generate time-series data for the engagement metrics graph
+      // This should match the date range selected by the user
+      const start = startDate ? new Date(startDate) : new Date();
+      start.setDate(start.getDate() - 14); // Default to last 14 days if no range specified
+      const end = endDate ? new Date(endDate) : new Date();
+      
+      const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      const timeSeriesData = Array.from({ length: Math.max(1, daysDiff) }, (_, i) => {
+        const date = new Date(start);
+        date.setDate(start.getDate() + i);
+        const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+        
+        // Note: This distributes totals evenly across days as a simplified visualization
+        // For accurate daily breakdown, Smartlead API would need to be called per day
+        // or use a daily analytics endpoint if available
+        const dayFactor = 1 / Math.max(1, daysDiff);
+        return {
+          name: dateStr,
+          'Email Sent': Math.round(totals.emailsSent * dayFactor),
+          'Email Opened': Math.round(totals.emailsOpened * dayFactor),
+          'Replied': Math.round(totals.replies * dayFactor),
+          'Positive Replied': Math.round(positiveReplyCount * dayFactor),
+          'Bounced': Math.round(totals.bounced * dayFactor),
+          'Unsubscribed': Math.round(totals.unsubscribed * dayFactor),
+        };
+      });
 
       const dashboardData = {
         metrics: [
           {
-            title: 'Emails Processed',
+            title: 'Emails Sent',
             value: formatNumber(totals.emailsSent),
-            comparisonText: `${campaigns.length} ${campaigns.length === 1 ? 'campaign' : 'campaigns'}`,
+            comparisonText: `${formatNumber(totalLeads)} Leads (Active + Inactive)`,
           },
           {
-            title: 'Open Rate',
-            value: `${openRate.toFixed(1)}%`,
-            comparisonText: `${formatNumber(totals.emailsOpened)} opens`,
+            title: 'Opened',
+            value: formatNumber(totals.emailsOpened),
+            comparisonText: `${openRate.toFixed(2)}% Open Rate`,
           },
           {
-            title: 'Click Rate',
-            value: `${clickRate.toFixed(1)}%`,
-            comparisonText: `${formatNumber(totals.emailsClicked)} clicks`,
+            title: 'Replied',
+            value: formatNumber(totals.replies),
+            comparisonText: `${replyRate.toFixed(2)}% Reply Rate`,
           },
           {
-            title: 'Reply Rate',
-            value: `${replyRate.toFixed(1)}%`,
-            comparisonText: `${formatNumber(totals.replies)} replies`,
+            title: 'Positive Reply',
+            value: formatNumber(positiveReplyCount),
+            comparisonText: `${positiveReplyRate.toFixed(2)}% Positive Reply Rate`,
+          },
+          {
+            title: 'Bounced',
+            value: formatNumber(totals.bounced),
+            comparisonText: `${bounceRate.toFixed(2)}% Bounce Rate`,
+          },
+          {
+            title: 'Number of Campaigns',
+            value: formatNumber(campaigns.length),
+            comparisonText: `${campaigns.filter(c => c.status === 'ACTIVE' || c.status === 'active' || c.status === 'running').length} Active`,
+          },
+          {
+            title: 'Total Leads',
+            value: formatNumber(totals.leads),
+            comparisonText: `${formatNumber(totals.completed)} Completed (${completionRate.toFixed(1)}%)`,
+          },
+          {
+            title: 'Completed Leads',
+            value: formatNumber(totals.completed),
+            comparisonText: `${completionRate.toFixed(1)}% Completion Rate`,
+          },
+          {
+            title: 'Blocked/Escalated',
+            value: formatNumber(totals.blocked),
+            comparisonText: `${blockedRate.toFixed(1)}% Blocked Rate`,
           },
         ],
-        // Rate Metrics (Gauge Charts)
-        openRateGauge: {
-          title: 'Open Rate',
-          percentage: openRate,
-        },
-        clickRateGauge: {
-          title: 'Click Rate',
-          percentage: clickRate,
-        },
-        replyRateGauge: {
-          title: 'Reply Rate',
-          percentage: replyRate,
+        // Time-series data for the engagement metrics graph
+        engagementMetrics: {
+          title: 'Email Engagement Metrics',
+          description: 'The data is displayed in Etc/GMT(UTC)',
+          data: timeSeriesData,
         },
         engagementFunnel: {
           title: 'Email Engagement Funnel',
-          description: 'Journey from delivery to conversion - Sent → Opened → Clicked → Replied',
+          description: 'Journey from delivery to conversion - Sent → Opened → Replied',
           data: [
             { name: 'Sent', value: totals.emailsSent, percentage: 100 },
             { name: 'Delivered', value: emailsDelivered, percentage: emailsDelivered > 0 ? calculatePercentage(emailsDelivered, totals.emailsSent) : 0 },
             { name: 'Opened', value: totals.emailsOpened, percentage: openRate },
-            { name: 'Clicked', value: totals.emailsClicked, percentage: clickRate },
             { name: 'Replied', value: totals.replies, percentage: replyRate },
           ],
           endpoint: 'GET /api/dashboard/email',
@@ -388,18 +722,6 @@ export async function GET(request: Request) {
           data: campaignMetrics.slice(0, 10).map(c => ({ name: c.name, value: c.openRate })),
           valueLabel: 'Open Rate (%)',
           endpoint: 'GET /api/dashboard/email (aggregated from /api/smartlead/campaigns/{id}/analytics)',
-        },
-        // Additional Data (Nice to Have)
-        additionalMetrics: {
-          title: 'Additional Metrics',
-          data: [
-            { label: 'Total Leads', value: formatNumber(totals.leads) },
-            { label: 'Completed Leads', value: formatNumber(totals.completed), percentage: completionRate },
-            { label: 'Blocked/Escalated', value: formatNumber(totals.blocked), percentage: blockedRate },
-            { label: 'Bounced Emails', value: formatNumber(totals.bounced), percentage: bounceRate },
-            { label: 'Total Campaigns', value: campaigns.length },
-            { label: 'Active Campaigns', value: campaigns.filter(c => c.status === 'active' || c.status === 'running').length },
-          ],
         },
       };
 

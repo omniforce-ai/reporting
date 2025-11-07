@@ -17,7 +17,7 @@ export function getTenantFeatures(tenant: Tenant): TenantFeatures {
     return DEFAULT_FEATURES;
   }
 
-  const features = tenant.features as TenantFeatures;
+  const features = tenant.features as unknown as TenantFeatures;
   
   // Validate and filter out invalid feature IDs
   const validFeatureIds: FeatureId[] = ['email', 'sales', 'support', 'documents'];

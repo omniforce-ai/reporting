@@ -18,10 +18,19 @@ const FunnelChartCard: React.FC<FunnelChartCardProps> = ({ title, description, d
   const maxValue = Math.max(...data.map(d => d.value), 0);
 
   return (
-    <div className="bg-[#0f0f1a] border border-[#2a2a3a] rounded-xl overflow-hidden">
-      <div className="flex items-center gap-2 px-6 py-3 border-b border-[#2a2a3a]">
-        <ChartBarIcon className="w-4 h-4 text-white" />
-        <div className="text-sm font-normal text-white">{title}</div>
+    <div 
+        className="rounded-xl overflow-hidden border border-purple-500/30 hover:border-purple-500/50 transition-all duration-300 shadow-2xl shadow-purple-500/10"
+        style={{ 
+            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(139, 92, 246, 0.1) 50%, rgba(168, 85, 247, 0.08) 100%)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)'
+        }}
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-purple-500/10">
+        <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/20">
+          <ChartBarIcon className="w-3.5 h-3.5 text-purple-400" />
+        </div>
+        <div className="text-xs font-semibold text-slate-100">{title}</div>
       </div>
       <div className="h-72 p-6 pt-4 flex flex-col justify-center gap-5">
         {data.map((stage, index) => {
@@ -35,19 +44,19 @@ const FunnelChartCard: React.FC<FunnelChartCardProps> = ({ title, description, d
           return (
             <div key={stage.name} className="relative">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-normal text-white">{stage.name}</span>
+                <span className="text-xs font-medium text-slate-300">{stage.name}</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-normal text-white">{stage.value.toLocaleString()}</span>
-                  <span className="text-xs font-normal text-white">({displayPercentage}%)</span>
+                  <span className="text-xs font-semibold text-slate-100">{stage.value.toLocaleString()}</span>
+                  <span className="text-xs font-medium text-slate-400">({displayPercentage}%)</span>
                 </div>
               </div>
               <div className="w-full bg-[#1a1a2e] rounded overflow-hidden" style={{ height: '36px' }}>
                 <div
-                  className="h-full bg-gradient-to-r from-[#007BFF] to-[#0066CC] transition-all duration-300 flex items-center justify-end pr-3"
+                  className="h-full bg-gradient-to-r from-purple-500 to-purple-600 transition-all duration-300 flex items-center justify-end pr-3"
                   style={{ width: `${widthPercentage}%` }}
                 >
                   {widthPercentage > 12 && (
-                    <span className="text-xs text-white font-medium">
+                    <span className="text-xs text-slate-100 font-medium">
                       {displayPercentage}%
                     </span>
                   )}
@@ -62,4 +71,3 @@ const FunnelChartCard: React.FC<FunnelChartCardProps> = ({ title, description, d
 };
 
 export default FunnelChartCard;
-

@@ -13,7 +13,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen text-slate-100 font-sans" style={{ background: 'radial-gradient(ellipse at top, #1a1a2e 0%, #0f0f1a 50%, #000000 100%)' }}>
+      <body className="min-h-screen text-slate-100 font-sans" style={{ 
+        background: 'linear-gradient(135deg, #0a0a0f 0%, #1a0a2e 50%, #0f0a1a 100%)',
+        backgroundAttachment: 'fixed'
+      }}>
         {children}
       </body>
     </html>

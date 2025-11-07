@@ -43,7 +43,7 @@ const NavItem: React.FC<{ item: NavItemType }> = ({ item }) => {
                      <Icon className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
                 )}
             </a>
-            {hasChildren && isOpen && (
+            {hasChildren && isOpen && item.children && (
                 <div className="pl-6 mt-1 space-y-1">
                     {item.children.map(child => <NavItem key={child.name} item={child} />)}
                 </div>

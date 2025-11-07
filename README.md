@@ -4,9 +4,9 @@ Multi-tenant SaaS reporting dashboard for AI automation agencies to provide clie
 
 ## Tech Stack
 
-- **Framework:** Next.js 14 (App Router)
+- **Framework:** Next.js 16 (App Router)
 - **Database:** PostgreSQL (Supabase) with Prisma ORM
-- **Authentication:** NextAuth.js
+- **Authentication:** NextAuth.js v4
 - **Styling:** Tailwind CSS
 - **Charts:** Recharts
 - **TypeScript:** Full type safety
