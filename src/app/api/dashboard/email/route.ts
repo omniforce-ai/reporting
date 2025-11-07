@@ -6,6 +6,16 @@ const REQUEST_TIMEOUT = 20000;
 const CACHE_REVALIDATE = 300;
 const MAX_CONCURRENT_REQUESTS = 5;
 
+interface CampaignLeadStats {
+  total?: number;
+  blocked?: number;
+  stopped?: number;
+  completed?: number;
+  inprogress?: number;
+  notStarted?: number;
+  interested?: number;
+}
+
 interface CampaignAnalytics {
   total_emails_sent?: number;
   total_emails_opened?: number;
@@ -26,6 +36,18 @@ interface CampaignAnalytics {
   sent?: number;
   opened?: number;
   clicked?: number;
+  campaign_lead_stats?: CampaignLeadStats;
+  sent_count?: string | number;
+  open_count?: string | number;
+  unique_open_count?: string | number;
+  click_count?: string | number;
+  unique_click_count?: string | number;
+  reply_count?: string | number;
+  bounce_count?: string | number;
+  unsubscribe_count?: string | number;
+  block_count?: string | number;
+  total_count?: string | number;
+  drafted_count?: string | number;
 }
 
 interface Campaign {
