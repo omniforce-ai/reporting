@@ -15,7 +15,7 @@ export async function GET() {
     
     const users = await clerk.users.getUserList({ limit: 100 });
     
-    const usersWithRoles = users.map(user => ({
+    const usersWithRoles = users.map((user: any) => ({
       id: user.id,
       email: user.emailAddresses[0]?.emailAddress || 'N/A',
       name: user.firstName && user.lastName 
