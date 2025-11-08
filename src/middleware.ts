@@ -70,7 +70,7 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
       if (!role || !clientSlug) {
         const clerkSecretKey = process.env.CLERK_SECRET_KEY;
         if (clerkSecretKey) {
-          const clerk = new Clerk({ secretKey: clerkSecretKey });
+          const clerk = new (Clerk as any)({ secretKey: clerkSecretKey });
           const user = await clerk.users.getUser(userId);
           const metadata = user.publicMetadata as any;
           role = role || metadata?.role || null;

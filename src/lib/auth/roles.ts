@@ -13,7 +13,7 @@ export async function getCurrentUserRole(): Promise<string | null> {
     try {
       const clerkSecretKey = process.env.CLERK_SECRET_KEY;
       if (clerkSecretKey) {
-        const clerk = new Clerk({ secretKey: clerkSecretKey });
+        const clerk = new (Clerk as any)({ secretKey: clerkSecretKey });
         const user = await clerk.users.getUser(userId);
         role = (user.publicMetadata as any)?.role || null;
       }
@@ -38,7 +38,7 @@ export async function getCurrentUserClientSlug(): Promise<string | null> {
     try {
       const clerkSecretKey = process.env.CLERK_SECRET_KEY;
       if (clerkSecretKey) {
-        const clerk = new Clerk({ secretKey: clerkSecretKey });
+        const clerk = new (Clerk as any)({ secretKey: clerkSecretKey });
         const user = await clerk.users.getUser(userId);
         const metadata = user.publicMetadata as any;
         clientSlug = metadata?.clientSlug || metadata?.clientSubdomain || null;

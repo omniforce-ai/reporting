@@ -4,7 +4,7 @@ import { UserCircleIcon, MailIcon, UsersIcon, ChartBarIcon, ArrowRightIcon, Plus
 import { Clerk } from '@clerk/clerk-sdk-node';
 
 const clerkSecretKey = process.env.CLERK_SECRET_KEY || '';
-const clerk = clerkSecretKey ? new Clerk({ secretKey: clerkSecretKey }) : null;
+const clerk = clerkSecretKey ? new (Clerk as any)({ secretKey: clerkSecretKey }) : null;
 
 export default async function AdminDashboardPage() {
   const tenants = await getAllTenantsFromSupabase();
