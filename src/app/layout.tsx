@@ -1,4 +1,6 @@
+import { ClerkProvider } from '@clerk/nextjs';
 import type { Metadata } from 'next';
+import AdminNavButton from '@/components/admin/AdminNavButton';
 import './styles/globals.css';
 
 export const metadata: Metadata = {
@@ -12,14 +14,17 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen text-slate-100 font-sans" style={{ 
-        background: 'linear-gradient(135deg, #0a0a0f 0%, #1a0a2e 50%, #0f0a1a 100%)',
-        backgroundAttachment: 'fixed'
-      }}>
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body className="min-h-screen text-slate-100 font-sans" style={{ 
+          background: 'linear-gradient(135deg, #0a0a0f 0%, #1a0a2e 50%, #0f0a1a 100%)',
+          backgroundAttachment: 'fixed'
+        }}>
+          {children}
+          <AdminNavButton />
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
 

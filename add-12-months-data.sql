@@ -172,3 +172,4 @@ ON CONFLICT (building_id, metric_date) DO UPDATE SET
 -- ORDER BY building_id;
 
 
+

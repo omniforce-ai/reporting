@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { OmniforceLogoViolet } from '@/components/icons';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,7 +27,7 @@ export default function LoginPage() {
       if (result?.error) {
         setError('Invalid email or password');
       } else if (result?.ok) {
-        router.push('/dashboard');
+        router.push('/');
         router.refresh();
       }
     } catch (err) {
@@ -39,9 +40,12 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-900">
       <div className="w-full max-w-md p-8 bg-slate-800 rounded-lg shadow-lg">
-        <h1 className="text-2xl font-bold text-white mb-6 text-center">
-          Sign In
-        </h1>
+        <div className="flex flex-col items-center mb-6">
+          <OmniforceLogoViolet className="w-12 h-12 mb-4" aria-label="Omniforce Logo" />
+          <h1 className="text-2xl font-bold text-white text-center">
+            Sign In
+          </h1>
+        </div>
         
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

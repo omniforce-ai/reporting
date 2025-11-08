@@ -11,11 +11,18 @@ export interface FeatureDefinition {
 
 // Central registry of all available features/tabs
 export const AVAILABLE_FEATURES: Record<FeatureId, FeatureDefinition> = {
-  email: {
-    id: 'email',
-    name: 'Email Triage',
+  smartlead: {
+    id: 'smartlead',
+    name: 'Smartlead',
     icon: InboxIcon,
-    description: 'Email automation and outreach analytics',
+    description: 'Smartlead email automation and outreach analytics',
+    requiresApiKey: true,
+  },
+  lemlist: {
+    id: 'lemlist',
+    name: 'Lemlist',
+    icon: InboxIcon,
+    description: 'Lemlist email automation and outreach analytics',
     requiresApiKey: true,
   },
   sales: {

@@ -1,6 +1,6 @@
 import { Tenant } from '@prisma/client';
 
-export type FeatureId = 'email' | 'sales' | 'support' | 'documents';
+export type FeatureId = 'smartlead' | 'lemlist' | 'sales' | 'support' | 'documents';
 
 // Simplified structure: just an array of enabled feature IDs
 // API keys stored separately in tenant.apiKeys JSONB field
@@ -13,17 +13,38 @@ const DEFAULT_FEATURES: TenantFeatures = {
 };
 
 export function getTenantFeatures(tenant: Tenant): TenantFeatures {
-  if (!tenant.features) {
-    return DEFAULT_FEATURES;
-  }
-
-  const features = tenant.features as unknown as TenantFeatures;
+  const validFeatureIds: FeatureId[] = ['smartlead', 'lemlist', 'sales', 'support', 'documents'];
+  let enabledFeatures: FeatureId[] = [];
   
-  // Validate and filter out invalid feature IDs
-  const validFeatureIds: FeatureId[] = ['email', 'sales', 'support', 'documents'];
-  const enabledFeatures = (features.enabledFeatures || []).filter(
-    (id): id is FeatureId => validFeatureIds.includes(id)
-  );
+  // If tenant has features configured, use them
+  if (tenant.features) {
+    const features = tenant.features as unknown as TenantFeatures;
+    enabledFeatures = (features.enabledFeatures || []).filter(
+      (id): id is FeatureId => validFeatureIds.includes(id)
+    );
+  }
+  
+  // Auto-enable features based on API keys configured
+  const apiKeys = tenant.apiKeys as Record<string, unknown> | null;
+  if (apiKeys) {
+    // Enable Smartlead tab if Smartlead API key is configured
+    if (apiKeys.smartlead && !enabledFeatures.includes('smartlead')) {
+      enabledFeatures.push('smartlead');
+    }
+    // Enable Lemlist tab if Lemlist API key is configured
+    if (apiKeys.lemlist && !enabledFeatures.includes('lemlist')) {
+      enabledFeatures.push('lemlist');
+    }
+  }
+  
+  // If no features are enabled, check API keys for backward compatibility
+  if (enabledFeatures.length === 0 && apiKeys) {
+    if (apiKeys.smartlead) {
+      enabledFeatures.push('smartlead');
+    } else if (apiKeys.lemlist) {
+      enabledFeatures.push('lemlist');
+    }
+  }
 
   return { enabledFeatures };
 }

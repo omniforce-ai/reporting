@@ -12,10 +12,15 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "clerk:set": "tsx scripts/clerk-roles.ts set",
+    "clerk:get": "tsx scripts/clerk-roles.ts get",
+    "clerk:list": "tsx scripts/clerk-roles.ts list"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
+    "@clerk/clerk-sdk-node": "^4.13.23",
+    "@clerk/nextjs": "^6.34.5",
     "@prisma/client": "^6.18.0",
     "@supabase/supabase-js": "^2.78.0",
     "bcryptjs": "^3.0.2",
@@ -37,6 +42,7 @@
     "dotenv": "^17.2.3",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.18",
+    "tsx": "^4.20.6",
     "typescript": "~5.9.3"
   }
 }

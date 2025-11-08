@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import type { NavItemType } from '@/types';
-import { AnalyticsIcon, ChevronDownIcon, InboxIcon, IntegrationsIcon, SupportIcon, TasksIcon } from '@/components/icons';
+import { AnalyticsIcon, ChevronDownIcon, InboxIcon, IntegrationsIcon, OmniforceLogoWhite, SupportIcon, TasksIcon } from '@/components/icons';
 
 const navigation: NavItemType[] = [
   { name: 'Inbox', icon: InboxIcon, href: '#', current: false },
@@ -58,11 +58,9 @@ const Sidebar: React.FC = () => {
             <div className="flex flex-col flex-1 p-4">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
-                           O
-                        </div>
-                        <span className="ml-3 text-lg font-semibold text-white">Omniforce</span>
+                    <div className="flex items-center gap-3">
+                        <OmniforceLogoWhite className="w-8 h-8 flex-shrink-0" aria-label="Omniforce Logo" />
+                        <span className="text-lg font-semibold text-white">Omniforce</span>
                     </div>
                 </div>
                 {/* Workspace Switcher */}

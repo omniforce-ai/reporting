@@ -1,16 +1,16 @@
 import { headers } from 'next/headers';
 import { supabase } from '@/lib/db/supabase';
 
-async function getTenantFromSupabase(subdomain: string) {
+async function getTenantFromSupabase(slug: string) {
   try {
     const { data, error } = await supabase
       .from('clients')
       .select('*')
-      .eq('subdomain', subdomain)
+      .eq('subdomain', slug) // Database field is still 'subdomain', but we use slug in code
       .single();
 
     if (error) {
-      console.error(`Supabase error fetching tenant ${subdomain}:`, error);
+      console.error(`Supabase error fetching tenant ${slug}:`, error);
       return null;
     }
 
@@ -27,7 +27,7 @@ async function getTenantFromSupabase(subdomain: string) {
         try {
           apiKeysValue = JSON.parse(apiKeysValue);
         } catch (e) {
-          console.warn(`Failed to parse apiKeys JSON for ${subdomain}:`, e);
+          console.warn(`Failed to parse apiKeys JSON for ${slug}:`, e);
           apiKeysValue = {};
         }
       }
@@ -35,11 +35,11 @@ async function getTenantFromSupabase(subdomain: string) {
       if (typeof apiKeysValue === 'object' && apiKeysValue !== null) {
         data.apiKeys = apiKeysValue;
       } else {
-        console.warn(`Invalid apiKeys format for ${subdomain}:`, typeof apiKeysValue);
+        console.warn(`Invalid apiKeys format for ${slug}:`, typeof apiKeysValue);
         data.apiKeys = {};
       }
     } else {
-      console.warn(`No apiKeys found for tenant ${subdomain}`);
+      console.warn(`No apiKeys found for tenant ${slug}`);
       data.apiKeys = {};
     }
 
@@ -49,7 +49,7 @@ async function getTenantFromSupabase(subdomain: string) {
         try {
           data.features = JSON.parse(data.features);
         } catch (e) {
-          console.warn(`Failed to parse features JSON for ${subdomain}:`, e);
+          console.warn(`Failed to parse features JSON for ${slug}:`, e);
           data.features = {};
         }
       }
@@ -57,7 +57,7 @@ async function getTenantFromSupabase(subdomain: string) {
 
     return data;
   } catch (error) {
-    console.error(`Error fetching tenant ${subdomain} from Supabase:`, error);
+    console.error(`Error fetching tenant ${slug} from Supabase:`, error);
     return null;
   }
 }
@@ -117,15 +117,15 @@ export async function getAllTenantsFromSupabase() {
 }
 
 /**
- * Get tenant by subdomain or clientId (slug).
- * For agency dashboards, prefer clientId query param over subdomain.
+ * Get tenant by client slug (stored in 'subdomain' field in database).
+ * The identifier can be the slug value or a slugified version of the client name.
  */
 async function getTenantByIdentifier(identifier: string) {
-  // Try by subdomain first
+  // Try by slug field (stored as 'subdomain' in database)
   let tenant = await getTenantFromSupabase(identifier);
   
   if (!tenant) {
-    // Try by clientId (could be stored as a slug or name)
+    // Try by slugified name as fallback
     const allTenants = await getAllTenantsFromSupabase();
     tenant = allTenants.find(
       t => t.subdomain === identifier || 
@@ -139,14 +139,14 @@ async function getTenantByIdentifier(identifier: string) {
 export async function getCurrentTenant(clientId?: string) {
   try {
     let identifier: string | null = null;
+    const headersList = await headers();
     
     // Priority 1: Explicit clientId parameter (from query string or path)
     if (clientId) {
       identifier = clientId;
     } else {
-      // Priority 2: Check headers for subdomain (backward compatibility)
-      const headersList = await headers();
-      identifier = headersList.get('x-tenant-subdomain');
+      // Priority 2: Check headers for path-based client
+      identifier = headersList.get('x-tenant-client');
     }
     
     // Clean up identifier - remove port if present
@@ -154,59 +154,21 @@ export async function getCurrentTenant(clientId?: string) {
       identifier = identifier.split(':')[0];
     }
     
-    // Priority 3: Default to creation-exhibitions for local dev
-    if (!identifier || identifier === 'localhost' || identifier === '127.0.0.1') {
-      identifier = 'creation-exhibitions';
+    if (!identifier) {
+      throw new Error('Client identifier not found. Must be provided via path or query parameter.');
     }
     
     // Try to get tenant by identifier
-    let tenant = await getTenantByIdentifier(identifier);
+    const tenant = await getTenantByIdentifier(identifier);
     
-    if (tenant) {
-      return tenant;
-    }
-    
-    // If identifier was explicitly set but not found, throw error
-    if (identifier && identifier !== 'creation-exhibitions') {
+    if (!tenant) {
       throw new Error(`Tenant not found for identifier: ${identifier}`);
     }
     
-    // Final fallback: try to get creation-exhibitions specifically
-    tenant = await getTenantByIdentifier('creation-exhibitions');
-    if (tenant) {
-      return tenant;
-    }
-    
-    // Last resort: get first tenant that has a Smartlead API key configured
-    const supabaseTenants = await getAllTenantsFromSupabase();
-    const tenantWithApiKey = supabaseTenants.find(t => {
-      const keys = t.apiKeys as any;
-      return keys && keys.smartlead;
-    });
-    
-    if (tenantWithApiKey) {
-      return tenantWithApiKey;
-    }
-    
-    throw new Error(`Tenant not found. Tried identifier: ${identifier}`);
+    return tenant;
   } catch (error) {
     console.error('getCurrentTenant error:', error);
     throw new Error(`Failed to get tenant: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-export function extractSubdomainFromHost(hostname: string): string | null {
-  const parts = hostname.split('.');
-  
-  if (parts.length < 3) {
-    return null;
-  }
-  
-  const subdomain = parts[0];
-  
-  if (subdomain === 'www' || subdomain === 'localhost' || subdomain === '127.0.0.1') {
-    return null;
-  }
-  
-  return subdomain;
-}
