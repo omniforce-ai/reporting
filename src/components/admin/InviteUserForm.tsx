@@ -206,7 +206,7 @@ export default function InviteUserForm() {
                     onChange={(e) => {
                       setRole(e.target.value as 'admin' | 'client');
                       if (e.target.value === 'admin') {
-                        setClientSubdomain('');
+                        setClientSlug('');
                       }
                     }}
                     className="w-full px-4 py-2 rounded-lg bg-slate-800 border border-purple-500/20 text-white focus:outline-none focus:border-purple-500"
