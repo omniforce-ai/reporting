@@ -6,7 +6,7 @@ export async function getCurrentUserRole(): Promise<string | null> {
   if (!userId) return null;
   
   // Try to get role from sessionClaims first
-  let role = (sessionClaims?.metadata?.role || sessionClaims?.publicMetadata?.role) as string;
+  let role = ((sessionClaims?.metadata as any)?.role || (sessionClaims?.publicMetadata as any)?.role) as string;
   
   // If not in sessionClaims, fetch user directly from Clerk
   if (!role) {
