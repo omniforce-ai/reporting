@@ -30,8 +30,8 @@ export async function getCurrentUserClientSlug(): Promise<string | null> {
   if (!userId) return null;
   
   // Try to get clientSlug from sessionClaims first (backward compat: also check clientSubdomain)
-  let clientSlug = (sessionClaims?.metadata?.clientSlug || sessionClaims?.publicMetadata?.clientSlug || 
-                    sessionClaims?.metadata?.clientSubdomain || sessionClaims?.publicMetadata?.clientSubdomain) as string;
+  let clientSlug = ((sessionClaims?.metadata as any)?.clientSlug || (sessionClaims?.publicMetadata as any)?.clientSlug || 
+                    (sessionClaims?.metadata as any)?.clientSubdomain || (sessionClaims?.publicMetadata as any)?.clientSubdomain) as string;
   
   // If not in sessionClaims, fetch user directly from Clerk
   if (!clientSlug) {
