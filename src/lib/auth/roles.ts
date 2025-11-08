@@ -6,14 +6,14 @@ export async function getCurrentUserRole(): Promise<string | null> {
   if (!userId) return null;
   
   // Try to get role from sessionClaims first
-  let role = ((sessionClaims?.metadata as any)?.role || (sessionClaims?.publicMetadata as any)?.role) as string;
+  let role = (sessionClaims?.metadata?.role || sessionClaims?.publicMetadata?.role) as string;
   
   // If not in sessionClaims, fetch user directly from Clerk
   if (!role) {
     try {
       const clerkSecretKey = process.env.CLERK_SECRET_KEY;
       if (clerkSecretKey) {
-        const clerk = new (Clerk as any)({ secretKey: clerkSecretKey });
+        const clerk = new Clerk({ secretKey: clerkSecretKey });
         const user = await clerk.users.getUser(userId);
         role = (user.publicMetadata as any)?.role || null;
       }
@@ -30,15 +30,15 @@ export async function getCurrentUserClientSlug(): Promise<string | null> {
   if (!userId) return null;
   
   // Try to get clientSlug from sessionClaims first (backward compat: also check clientSubdomain)
-  let clientSlug = ((sessionClaims?.metadata as any)?.clientSlug || (sessionClaims?.publicMetadata as any)?.clientSlug || 
-                    (sessionClaims?.metadata as any)?.clientSubdomain || (sessionClaims?.publicMetadata as any)?.clientSubdomain) as string;
+  let clientSlug = (sessionClaims?.metadata?.clientSlug || sessionClaims?.publicMetadata?.clientSlug || 
+                    sessionClaims?.metadata?.clientSubdomain || sessionClaims?.publicMetadata?.clientSubdomain) as string;
   
   // If not in sessionClaims, fetch user directly from Clerk
   if (!clientSlug) {
     try {
       const clerkSecretKey = process.env.CLERK_SECRET_KEY;
       if (clerkSecretKey) {
-        const clerk = new (Clerk as any)({ secretKey: clerkSecretKey });
+        const clerk = new Clerk({ secretKey: clerkSecretKey });
         const user = await clerk.users.getUser(userId);
         const metadata = user.publicMetadata as any;
         clientSlug = metadata?.clientSlug || metadata?.clientSubdomain || null;

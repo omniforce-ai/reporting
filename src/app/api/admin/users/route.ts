@@ -7,7 +7,7 @@ if (!clerkSecretKey) {
   throw new Error('CLERK_SECRET_KEY is required');
 }
 
-const clerk = new (Clerk as any)({ secretKey: clerkSecretKey });
+const clerk = new Clerk({ secretKey: clerkSecretKey });
 
 export async function GET() {
   try {

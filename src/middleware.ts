@@ -61,16 +61,16 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
     try {
       // Try to get role from sessionClaims first (faster)
       const { sessionClaims } = await auth();
-      role = ((sessionClaims?.metadata as any)?.role || (sessionClaims?.publicMetadata as any)?.role) as string;
+      role = (sessionClaims?.metadata?.role || sessionClaims?.publicMetadata?.role) as string;
       // Backward compat: check both clientSlug and clientSubdomain
-      clientSlug = ((sessionClaims?.metadata as any)?.clientSlug || (sessionClaims?.publicMetadata as any)?.clientSlug ||
-                    (sessionClaims?.metadata as any)?.clientSubdomain || (sessionClaims?.publicMetadata as any)?.clientSubdomain) as string;
+      clientSlug = (sessionClaims?.metadata?.clientSlug || sessionClaims?.publicMetadata?.clientSlug ||
+                    sessionClaims?.metadata?.clientSubdomain || sessionClaims?.publicMetadata?.clientSubdomain) as string;
       
       // If not in sessionClaims, fetch user directly from Clerk
       if (!role || !clientSlug) {
         const clerkSecretKey = process.env.CLERK_SECRET_KEY;
         if (clerkSecretKey) {
-          const clerk = new (Clerk as any)({ secretKey: clerkSecretKey });
+          const clerk = new Clerk({ secretKey: clerkSecretKey });
           const user = await clerk.users.getUser(userId);
           const metadata = user.publicMetadata as any;
           role = role || metadata?.role || null;
