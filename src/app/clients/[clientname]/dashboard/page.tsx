@@ -347,7 +347,6 @@ export default function ClientDashboardPage() {
     return (
       <ErrorState
         title="No Data Available"
-        description="Unable to load data for the selected feature."
       />
     );
   }
