@@ -16,7 +16,7 @@ export default async function AdminDashboardPage() {
     if (clerk) {
       const users = await clerk.users.getUserList({ limit: 100 });
       userCount = users.length;
-      adminCount = users.filter(u => (u.publicMetadata as any)?.role === 'admin').length;
+      adminCount = users.filter((u: any) => (u.publicMetadata as any)?.role === 'admin').length;
     }
   } catch (error) {
     console.error('Error fetching users:', error);
