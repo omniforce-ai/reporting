@@ -5,7 +5,7 @@ import EngagementMetricsChart from '@/components/EngagementMetricsChart';
 import GaugeChartCard from '@/components/GaugeChartCard';
 import LineChartCard from '@/components/LineChartCard';
 import MetricCard from '@/components/MetricCard';
-import { DashboardSkeleton } from '@/components/LoadingSkeleton';
+import { DashboardSkeleton, DashboardContentSkeleton } from '@/components/LoadingSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
 import { AnalyticsIcon, CalendarIcon, CheckCircleIcon, ClockIcon, MailIcon, TasksIcon, ThumbsUpIcon, XCircleIcon } from '@/components/icons';
@@ -350,11 +350,26 @@ export default function ClientDashboardPage() {
     displayData = transformed;
   }
 
+  if (isLoadingEmailData) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="@container/main flex flex-1 flex-col gap-2">
+          <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+            <div className="px-4 lg:px-6">
+              <DashboardContentSkeleton />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!displayData) {
     return (
-      <ErrorState
+      <EmptyState
+        icon={AnalyticsIcon}
         title="No Data Available"
-        message="Unable to load data for the selected feature."
+        description="No data found for the selected date range. Try selecting a different time period."
       />
     );
   }
@@ -434,7 +449,7 @@ export default function ClientDashboardPage() {
                 {enabledFeatures.map((feature) => (
                   <TabsContent key={feature.id} value={feature.id} className="mt-4">
                     {isLoadingEmailData ? (
-                      <DashboardSkeleton />
+                      <DashboardContentSkeleton />
                     ) : (
                       <div className="space-y-6">
                         {/* Metrics Grid */}
