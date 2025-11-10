@@ -14,7 +14,7 @@ const MetricCard: React.FC<Metric> = ({ title, value, comparisonText, icon: Icon
     <Card className="@container/card">
       <CardHeader className="relative">
         <CardDescription>{title}</CardDescription>
-        <CardTitle className="@[250px]/card:text-3xl text-2xl font-semibold tabular-nums">
+        <CardTitle className="@[250px]/card:text-4xl text-3xl font-semibold tabular-nums">
           {value}
         </CardTitle>
         {percentage && (

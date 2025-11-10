@@ -15,7 +15,7 @@ export function SectionCards() {
       <Card className="@container/card">
         <CardHeader className="relative">
           <CardDescription>Total Revenue</CardDescription>
-          <CardTitle className="@[250px]/card:text-3xl text-2xl font-semibold tabular-nums">
+          <CardTitle className="@[250px]/card:text-4xl text-3xl font-semibold tabular-nums">
             $1,250.00
           </CardTitle>
           <div className="absolute right-4 top-4">
@@ -34,7 +34,7 @@ export function SectionCards() {
       <Card className="@container/card">
         <CardHeader className="relative">
           <CardDescription>New Customers</CardDescription>
-          <CardTitle className="@[250px]/card:text-3xl text-2xl font-semibold tabular-nums">
+          <CardTitle className="@[250px]/card:text-4xl text-3xl font-semibold tabular-nums">
             1,234
           </CardTitle>
           <div className="absolute right-4 top-4">
@@ -53,7 +53,7 @@ export function SectionCards() {
       <Card className="@container/card">
         <CardHeader className="relative">
           <CardDescription>Active Accounts</CardDescription>
-          <CardTitle className="@[250px]/card:text-3xl text-2xl font-semibold tabular-nums">
+          <CardTitle className="@[250px]/card:text-4xl text-3xl font-semibold tabular-nums">
             45,678
           </CardTitle>
           <div className="absolute right-4 top-4">
@@ -72,7 +72,7 @@ export function SectionCards() {
       <Card className="@container/card">
         <CardHeader className="relative">
           <CardDescription>Growth Rate</CardDescription>
-          <CardTitle className="@[250px]/card:text-3xl text-2xl font-semibold tabular-nums">
+          <CardTitle className="@[250px]/card:text-4xl text-3xl font-semibold tabular-nums">
             4.5%
           </CardTitle>
           <div className="absolute right-4 top-4">
