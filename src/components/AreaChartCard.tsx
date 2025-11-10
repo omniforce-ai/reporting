@@ -1,7 +1,8 @@
 import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Area, AreaChart, CartesianGrid, XAxis } from 'recharts';
 import type { ChartDataPoint } from '@/types';
-import { ChartBarIcon, ChevronDownIcon } from '@/components/icons';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 
 interface AreaChartCardProps {
     title: string;
@@ -9,89 +10,112 @@ interface AreaChartCardProps {
     data: ChartDataPoint[];
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div 
-          className="border border-purple-500/50 p-3 rounded-xl text-xs shadow-2xl shadow-purple-500/30 backdrop-blur-xl"
-          style={{ 
-              background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.3) 0%, rgba(139, 92, 246, 0.25) 100%)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              transform: 'translateY(-2px)',
-              transition: 'all 0.3s ease'
-          }}
-      >
-        <p className="text-slate-100 mb-2 font-semibold">{`${label}`}</p>
-        <p className="text-purple-200 font-bold text-sm mb-1">{`Completed: ${payload[0].value}`}</p>
-        <p className="text-slate-300 font-bold text-sm">{`Failed: ${payload[1].value}`}</p>
-      </div>
-    );
-  }
-  return null;
-};
+const chartConfig = {
+  completed: {
+    label: "Completed",
+    color: "hsl(var(--chart-1))",
+  },
+  failed: {
+    label: "Failed",
+    color: "hsl(var(--chart-2))",
+  },
+} satisfies ChartConfig;
 
 const AreaChartCard: React.FC<AreaChartCardProps> = ({ title, description, data }) => {
+  const chartData = data.map(item => ({
+    date: item.name,
+    completed: item.completed || 0,
+    failed: item.failed || 0,
+  }));
+
   return (
-    <div 
-        className="rounded-xl overflow-hidden border border-purple-500/30 hover:border-purple-500/60 transition-all duration-500 shadow-2xl shadow-purple-500/10 hover:shadow-purple-500/20"
-        style={{ 
-            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(139, 92, 246, 0.1) 50%, rgba(168, 85, 247, 0.08) 100%)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)'
-        }}
-    >
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-purple-500/10">
-        <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/20">
-          <ChartBarIcon className="w-3.5 h-3.5 text-purple-400" />
-        </div>
-        <div className="text-xs font-semibold text-slate-100">{title}</div>
-      </div>
-      <div className="h-72 p-6 pt-4">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 5, right: 15, left: -10, bottom: 5 }}>
+    <Card className="@container/card">
+      <CardHeader className="relative">
+        <CardTitle>{title}</CardTitle>
+        {description && <CardDescription>{description}</CardDescription>}
+      </CardHeader>
+      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+        <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
+          <AreaChart data={chartData}>
             <defs>
-              <linearGradient id="colorCompleted" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#a855f7" stopOpacity={0.5}/>
-                <stop offset="50%" stopColor="#9333ea" stopOpacity={0.3}/>
-                <stop offset="100%" stopColor="#7c3aed" stopOpacity={0}/>
+              <linearGradient id="fillCompleted" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="5%"
+                  stopColor="var(--color-completed)"
+                  stopOpacity={1.0}
+                />
+                <stop
+                  offset="95%"
+                  stopColor="var(--color-completed)"
+                  stopOpacity={0.1}
+                />
               </linearGradient>
-              <linearGradient id="colorFailed" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6b7280" stopOpacity={0.4}/>
-                <stop offset="50%" stopColor="#4b5563" stopOpacity={0.2}/>
-                <stop offset="100%" stopColor="#374151" stopOpacity={0}/>
+              <linearGradient id="fillFailed" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="5%"
+                  stopColor="var(--color-failed)"
+                  stopOpacity={0.8}
+                />
+                <stop
+                  offset="95%"
+                  stopColor="var(--color-failed)"
+                  stopOpacity={0.1}
+                />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1a1a2e" vertical={false} opacity={0.3} />
-            <XAxis dataKey="name" tick={{ fill: '#a78bfa', fontSize: 11, fontWeight: 500 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#a78bfa', fontSize: 11, fontWeight: 500 }} axisLine={false} tickLine={false} />
-            <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#a855f7', strokeDasharray: '5 5', strokeWidth: 2, strokeOpacity: 0.3 }} />
-            <Area 
-              type="monotone" 
-              dataKey="failed" 
-              name="Failed" 
-              stroke="#6b7280" 
-              strokeWidth={2.5} 
-              fillOpacity={1} 
-              fill="url(#colorFailed)" 
-              animationDuration={1500}
-              animationBegin={0}
+            <CartesianGrid vertical={false} />
+            <XAxis
+              dataKey="date"
+              tickLine={false}
+              axisLine={false}
+              tickMargin={8}
+              minTickGap={32}
+              tickFormatter={(value) => {
+                if (typeof value === 'string' && value.includes('-')) {
+                  const date = new Date(value);
+                  return date.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  });
+                }
+                return value;
+              }}
             />
-            <Area 
-              type="monotone" 
-              dataKey="completed" 
-              name="Completed" 
-              stroke="#a855f7" 
-              strokeWidth={3} 
-              fillOpacity={1} 
-              fill="url(#colorCompleted)" 
-              animationDuration={1500}
-              animationBegin={200}
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(value) => {
+                    if (typeof value === 'string' && value.includes('-')) {
+                      return new Date(value).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      });
+                    }
+                    return value;
+                  }}
+                  indicator="dot"
+                />
+              }
+            />
+            <Area
+              dataKey="failed"
+              type="natural"
+              fill="url(#fillFailed)"
+              stroke="var(--color-failed)"
+              stackId="a"
+            />
+            <Area
+              dataKey="completed"
+              type="natural"
+              fill="url(#fillCompleted)"
+              stroke="var(--color-completed)"
+              stackId="a"
             />
           </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+        </ChartContainer>
+      </CardContent>
+    </Card>
   );
 };
 

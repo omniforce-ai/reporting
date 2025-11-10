@@ -3,6 +3,8 @@ import MetricCard from './MetricCard';
 import GaugeChartCard from './GaugeChartCard';
 import AreaChartCard from './AreaChartCard';
 import LineChartCard from './LineChartCard';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { AnalyticsIcon, CalendarIcon, CheckCircleIcon, ClockIcon, DocumentTextIcon, DownloadIcon, InboxIcon, SupportIcon, TasksIcon, UserCircleIcon, XCircleIcon } from '@/components/icons';
 import type { Agent } from '@/types';
 
@@ -136,50 +138,47 @@ const Dashboard: React.FC = () => {
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-slate-800">
+      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-border">
         <div className="flex items-center gap-4">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-lg">
             O
           </div>
-          <h1 className="text-2xl font-bold text-white">Omniforce Analytics</h1>
+          <h1 className="text-2xl font-bold">Omniforce Analytics</h1>
         </div>
         <div className="flex items-center gap-2 sm:gap-4 mt-4 sm:mt-0 w-full sm:w-auto">
           <div className="relative flex-grow sm:flex-grow-0">
-            <CalendarIcon className="w-5 h-5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input 
+            <CalendarIcon className="w-5 h-5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+            <Input 
               type="text" 
               defaultValue="Feb 10 - Feb 25, 2025"
-              className="bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="pl-10 w-full"
             />
           </div>
-          <button className="p-2.5 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 transition-colors flex-shrink-0">
-            <DownloadIcon className="w-5 h-5 text-slate-400"/>
-          </button>
-           <button className="p-2.5 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 transition-colors flex-shrink-0">
-            <UserCircleIcon className="w-5 h-5 text-slate-400"/>
-          </button>
+          <Button variant="outline" size="icon">
+            <DownloadIcon className="w-5 h-5"/>
+          </Button>
+          <Button variant="outline" size="icon">
+            <UserCircleIcon className="w-5 h-5"/>
+          </Button>
         </div>
       </header>
 
       {/* Agent Tabs */}
        <div className="mt-6">
-        <div className="inline-block bg-slate-800/80 p-1 rounded-xl">
+        <div className="inline-block bg-muted/50 p-1 rounded-xl">
             <nav className="flex space-x-1" aria-label="Tabs">
                 {agents.map((agent) => {
                     const Icon = agent.icon;
                     return (
-                        <button
+                        <Button
                             key={agent.id}
                             onClick={() => setActiveTabId(agent.id)}
-                            className={`${
-                            activeTabId === agent.id
-                                ? 'bg-slate-700 text-white shadow-sm'
-                                : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                            } flex items-center gap-2 whitespace-nowrap rounded-lg py-2 px-4 font-medium text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900`}
+                            variant={activeTabId === agent.id ? "default" : "ghost"}
+                            className="flex items-center gap-2"
                         >
                             <Icon className="w-5 h-5" />
                             {agent.name}
-                        </button>
+                        </Button>
                     )
                 })}
             </nav>

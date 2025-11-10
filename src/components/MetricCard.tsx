@@ -1,29 +1,39 @@
 import React from 'react';
 import type { Metric } from '@/types';
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { TrendingUpIcon, TrendingDownIcon } from 'lucide-react';
 
 const MetricCard: React.FC<Metric> = ({ title, value, comparisonText, icon: Icon }) => {
+  const isPositive = comparisonText?.includes('+') || !comparisonText?.includes('-');
+  const TrendIcon = isPositive ? TrendingUpIcon : TrendingDownIcon;
+  const percentageMatch = comparisonText?.match(/[+-]?\d+\.?\d*%/);
+  const percentage = percentageMatch ? percentageMatch[0] : null;
+
   return (
-    <div 
-        className="group relative rounded-xl px-4 py-3 border border-purple-500/30 hover:border-purple-500/50 transition-all duration-300 shadow-2xl shadow-purple-500/10"
-        style={{ 
-            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.15) 0%, rgba(139, 92, 246, 0.1) 50%, rgba(168, 85, 247, 0.08) 100%)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)'
-        }}
-    >
-      <div className="relative z-10">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/20">
-            <Icon className="w-3.5 h-3.5 text-purple-400" />
-          </div>
-          <div className="text-sm font-medium text-slate-300">{title}</div>
-        </div>
-        <div className="text-3xl font-bold text-slate-100 tracking-tight mb-1.5">
+    <Card className="@container/card">
+      <CardHeader className="relative">
+        <CardDescription>{title}</CardDescription>
+        <CardTitle className="@[250px]/card:text-3xl text-2xl font-semibold tabular-nums">
           {value}
-        </div>
-        <div className="text-xs font-medium text-slate-400">{comparisonText}</div>
-      </div>
-    </div>
+        </CardTitle>
+        {percentage && (
+          <div className="absolute right-4 top-4">
+            <Badge variant="outline" className="flex gap-1 rounded-lg text-xs">
+              <TrendIcon className="size-3" />
+              {percentage}
+            </Badge>
+          </div>
+        )}
+      </CardHeader>
+      {comparisonText && (
+        <CardFooter className="flex-col items-start gap-1 text-sm">
+          <div className="text-muted-foreground">
+            {comparisonText}
+          </div>
+        </CardFooter>
+      )}
+    </Card>
   );
 };
 

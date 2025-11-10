@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     if (role === 'client' && clientIdentifier) {
       redirectUrl = `/clients/${clientIdentifier}/dashboard`;
     } else if (role === 'admin') {
-      redirectUrl = '/admin';
+      redirectUrl = '/admin/clients';
     }
     
     // Create invitation

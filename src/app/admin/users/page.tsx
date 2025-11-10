@@ -3,6 +3,23 @@
 import { useEffect, useState } from 'react';
 import { UserCircleIcon } from '@/components/icons';
 import InviteUserForm from '@/components/admin/InviteUserForm';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type User = {
   id: string;
@@ -72,104 +89,134 @@ export default function AdminUsersPage() {
 
   if (loading) {
     return (
-      <div className="p-8 sm:p-12 lg:p-16">
-        <div className="text-center text-slate-400">Loading users...</div>
+      <div className="flex flex-1 flex-col">
+        <div className="@container/main flex flex-1 flex-col gap-2">
+          <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+            <div className="px-4 lg:px-6">
+              <div className="text-center text-muted-foreground">Loading users...</div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-8 sm:p-12 lg:p-16">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white mb-2">User Management</h1>
-          <p className="text-slate-400">Manage user roles and permissions</p>
-        </div>
-        <InviteUserForm />
-      </div>
+    <div className="flex flex-1 flex-col">
+      <div className="@container/main flex flex-1 flex-col gap-2">
+        <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 lg:px-6">
+            <div>
+              <h1 className="text-3xl font-semibold">User Management</h1>
+              <p className="text-sm text-muted-foreground">Manage user roles and permissions</p>
+            </div>
+            <InviteUserForm />
+          </div>
 
-      <div className="glass rounded-xl border-purple-500/20 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-purple-500/10 border-b border-purple-500/20">
-            <tr>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-slate-300">User</th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-slate-300">Email</th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-slate-300">Role</th>
-              <th className="px-6 py-4 text-left text-sm font-semibold text-slate-300">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-purple-500/10">
-            {users.map((user) => (
-              <tr key={user.id} className="hover:bg-purple-500/5 transition-colors">
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <UserCircleIcon className="w-5 h-5 text-purple-400" />
-                    <span className="text-white">{user.name}</span>
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-slate-300">{user.email}</td>
-                <td className="px-6 py-4">
-                  {editingUserId === user.id ? (
-                    <select
-                      value={newRole}
-                      onChange={(e) => setNewRole(e.target.value as 'admin' | 'client')}
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 border border-purple-500/20 text-white text-sm focus:outline-none focus:border-purple-500"
-                    >
-                      <option value="admin">Admin</option>
-                      <option value="client">Client</option>
-                    </select>
+          {/* Table */}
+          <div className="px-4 lg:px-6">
+            <div className="overflow-hidden rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead className="w-[120px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="h-24 text-center">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <UserCircleIcon className="h-8 w-8 text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground">No users found</p>
+                          <p className="text-xs text-muted-foreground">Users will appear here once they sign up.</p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   ) : (
-                    <span
-                      className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        user.role === 'admin'
-                          ? 'bg-purple-600/20 text-purple-300'
-                          : user.role === 'client'
-                          ? 'bg-blue-600/20 text-blue-300'
-                          : 'bg-slate-600/20 text-slate-400'
-                      }`}
-                    >
-                      {user.role === 'admin' ? '👑 Admin' : user.role === 'client' ? '👤 Client' : '❓ Not Set'}
-                    </span>
+                    users.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                              <UserCircleIcon className="w-4 h-4 text-primary" />
+                            </div>
+                            <span className="font-medium">{user.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">{user.email}</span>
+                        </TableCell>
+                        <TableCell>
+                          {editingUserId === user.id ? (
+                            <Select
+                              value={newRole}
+                              onValueChange={(value) => setNewRole(value as 'admin' | 'client')}
+                            >
+                              <SelectTrigger className="h-8 w-32">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="admin">Admin</SelectItem>
+                                <SelectItem value="client">Client</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className={
+                                user.role === 'admin'
+                                  ? 'bg-primary/10 text-primary'
+                                  : user.role === 'client'
+                                  ? 'bg-secondary/50 text-secondary-foreground'
+                                  : ''
+                              }
+                            >
+                              {user.role === 'admin' ? 'Admin' : user.role === 'client' ? 'Client' : 'Not Set'}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editingUserId === user.id ? (
+                            <div className="flex gap-2">
+                              <Button
+                                onClick={() => handleSave(user.id)}
+                                size="sm"
+                                variant="default"
+                              >
+                                Save
+                              </Button>
+                              <Button
+                                onClick={handleCancel}
+                                size="sm"
+                                variant="outline"
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              onClick={() => handleEdit(user)}
+                              size="sm"
+                              variant="outline"
+                            >
+                              Edit Role
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
                   )}
-                </td>
-                <td className="px-6 py-4">
-                  {editingUserId === user.id ? (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleSave(user.id)}
-                        className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm transition-colors"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={handleCancel}
-                        className="px-3 py-1.5 rounded-lg bg-slate-600 hover:bg-slate-700 text-white text-sm transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => handleEdit(user)}
-                      className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm transition-colors"
-                    >
-                      Edit Role
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {users.length === 0 && (
-        <div className="glass rounded-xl border-purple-500/20 p-12 text-center">
-          <UserCircleIcon className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-white mb-2">No users found</h3>
-          <p className="text-slate-400">Users will appear here once they sign up.</p>
+                </TableBody>
+              </Table>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

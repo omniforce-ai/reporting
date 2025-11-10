@@ -1,6 +1,6 @@
-
 import React, { useState } from 'react';
 import type { NavItemType } from '@/types';
+import { Button } from '@/components/ui/button';
 import { AnalyticsIcon, ChevronDownIcon, InboxIcon, IntegrationsIcon, OmniforceLogoWhite, SupportIcon, TasksIcon } from '@/components/icons';
 
 const navigation: NavItemType[] = [
@@ -21,28 +21,29 @@ const NavItem: React.FC<{ item: NavItemType }> = ({ item }) => {
     const [isOpen, setIsOpen] = useState(false);
 
     const hasChildren = item.children && item.children.length > 0;
-
-    const linkClasses = `group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-150 ${
-        item.current
-        ? 'bg-slate-800 text-white'
-        : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-    }`;
     
     const Icon = item.icon;
 
     return (
         <div>
-            <a href={item.href} className={linkClasses} onClick={(e) => {
-                if(item.name.includes("Agent")) {
-                    e.preventDefault();
-                    setIsOpen(!isOpen);
-                }
-            }}>
-                <span className="flex-1">{item.name}</span>
-                {item.name.includes("Agent") && (
-                     <Icon className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-                )}
-            </a>
+            <Button
+                variant={item.current ? "secondary" : "ghost"}
+                className="w-full justify-between"
+                onClick={(e) => {
+                    if(item.name.includes("Agent")) {
+                        e.preventDefault();
+                        setIsOpen(!isOpen);
+                    }
+                }}
+                asChild
+            >
+                <a href={item.href}>
+                    <span className="flex-1">{item.name}</span>
+                    {item.name.includes("Agent") && (
+                        <Icon className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                    )}
+                </a>
+            </Button>
             {hasChildren && isOpen && item.children && (
                 <div className="pl-6 mt-1 space-y-1">
                     {item.children.map(child => <NavItem key={child.name} item={child} />)}
@@ -54,38 +55,43 @@ const NavItem: React.FC<{ item: NavItemType }> = ({ item }) => {
 
 const Sidebar: React.FC = () => {
     return (
-        <div className="flex flex-col w-64 h-full bg-slate-900 border-r border-slate-800">
+        <div className="flex flex-col w-64 h-full bg-card border-r border-border">
             <div className="flex flex-col flex-1 p-4">
                 {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                         <OmniforceLogoWhite className="w-8 h-8 flex-shrink-0" aria-label="Omniforce Logo" />
-                        <span className="text-lg font-semibold text-white">Omniforce</span>
+                        <span className="text-lg font-semibold">Omniforce</span>
                     </div>
                 </div>
                 {/* Workspace Switcher */}
                 <div className="mb-6">
-                    <button className="w-full flex items-center justify-between p-2 text-sm text-left bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors duration-150">
+                    <Button variant="secondary" className="w-full justify-between">
                         <span>My Workspace</span>
-                        <ChevronDownIcon className="w-4 h-4 text-slate-400" />
-                    </button>
+                        <ChevronDownIcon className="w-4 h-4" />
+                    </Button>
                 </div>
 
                 {/* Main Navigation */}
                 <nav className="flex-1 space-y-1">
                     {navigation.map((item) => (
-                        <a key={item.name} href={item.href} className={`group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-150 ${
-                            item.current ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                        }`}>
-                            <item.icon className="mr-3 h-5 w-5" />
-                            {item.name}
-                        </a>
+                        <Button
+                            key={item.name}
+                            variant={item.current ? "secondary" : "ghost"}
+                            className="w-full justify-start"
+                            asChild
+                        >
+                            <a href={item.href}>
+                                <item.icon className="mr-3 h-5 w-5" />
+                                {item.name}
+                            </a>
+                        </Button>
                     ))}
                 </nav>
 
                 {/* Agents Section */}
                  <div className="mt-6">
-                    <h3 className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Your Agents</h3>
+                    <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Your Agents</h3>
                     <div className="space-y-1">
                         {agents.map(agent => <NavItem key={agent.name} item={agent} />)}
                     </div>
@@ -93,11 +99,13 @@ const Sidebar: React.FC = () => {
             </div>
 
             {/* Footer */}
-            <div className="p-4 border-t border-slate-800">
-                <a href="#" className="flex items-center text-sm text-slate-400 hover:text-white transition-colors duration-150">
-                    <SupportIcon className="w-5 h-5 mr-3" />
-                    Chat & support
-                </a>
+            <div className="p-4 border-t border-border">
+                <Button variant="ghost" className="w-full justify-start" asChild>
+                    <a href="#">
+                        <SupportIcon className="w-5 h-5 mr-3" />
+                        Chat & support
+                    </a>
+                </Button>
             </div>
         </div>
     );

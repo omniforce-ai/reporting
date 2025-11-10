@@ -1,83 +1,152 @@
 import { getAllTenantsFromSupabase } from '@/lib/utils/tenant';
 import Link from 'next/link';
-import { UserCircleIcon, MailIcon } from '@/components/icons';
+import { UserCircleIcon, ArrowRightIcon } from '@/components/icons';
+import { MoreVerticalIcon } from 'lucide-react';
 import CreateClientForm from '@/components/admin/CreateClientForm';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
 
 export default async function AdminClientsPage() {
   const tenants = await getAllTenantsFromSupabase();
 
   return (
-    <div className="p-8 sm:p-12 lg:p-16">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white mb-2">All Clients</h1>
-          <p className="text-slate-400">Manage and view all client accounts</p>
+    <div className="flex flex-1 flex-col">
+      <div className="@container/main flex flex-1 flex-col gap-2">
+        <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 lg:px-6">
+            <div>
+              <h1 className="text-3xl font-semibold">All Clients</h1>
+              <p className="text-sm text-muted-foreground">Manage and view all client accounts</p>
+            </div>
+            <CreateClientForm />
+          </div>
+
+          {/* Table */}
+          <div className="px-4 lg:px-6">
+            <div className="overflow-hidden rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Client</TableHead>
+                    <TableHead>Subdomain</TableHead>
+                    <TableHead>APIs</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="w-[70px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {tenants.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="h-24 text-center">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <UserCircleIcon className="h-8 w-8 text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground">No clients yet</p>
+                          <p className="text-xs text-muted-foreground">Clients will appear here once they're added to the system.</p>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    tenants.map((client) => {
+                      const apiKeys = (client.apiKeys as { smartlead?: string; lemlist?: string } | null) || {};
+                      const hasSmartlead = !!apiKeys.smartlead;
+                      const hasLemlist = !!apiKeys.lemlist;
+
+                      return (
+                        <TableRow key={client.id}>
+                          <TableCell>
+                            <Link
+                              href={`/clients/${client.subdomain}/dashboard`}
+                              className="flex items-center gap-3 hover:text-primary transition-colors"
+                            >
+                              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <UserCircleIcon className="w-4 h-4 text-primary" />
+                              </div>
+                              <div>
+                                <div className="font-medium">{client.name || client.subdomain}</div>
+                              </div>
+                            </Link>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm text-muted-foreground">{client.subdomain}</span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              {hasSmartlead && (
+                                <Badge variant="outline" className="text-xs">
+                                  Smartlead
+                                </Badge>
+                              )}
+                              {hasLemlist && (
+                                <Badge variant="outline" className="text-xs">
+                                  Lemlist
+                                </Badge>
+                              )}
+                              {!hasSmartlead && !hasLemlist && (
+                                <span className="text-xs text-muted-foreground">None</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-sm text-muted-foreground">
+                              {new Date(client.createdAt).toLocaleDateString()}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  className="flex h-8 w-8 p-0 data-[state=open]:bg-muted"
+                                  size="icon"
+                                >
+                                  <MoreVerticalIcon className="h-4 w-4" />
+                                  <span className="sr-only">Open menu</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/clients/${client.subdomain}/dashboard`}>
+                                    View Dashboard
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/admin/clients/${client.subdomain}`}>
+                                    Edit Client
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive">
+                                  Delete Client
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
         </div>
-        <CreateClientForm />
       </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {tenants.map((client) => {
-          const apiKeys = (client.apiKeys as { smartlead?: string; lemlist?: string } | null) || {};
-          const hasSmartlead = !!apiKeys.smartlead;
-          const hasLemlist = !!apiKeys.lemlist;
-
-          return (
-            <Link
-              key={client.id}
-              href={`/clients/${client.subdomain}/dashboard`}
-              className="glass rounded-xl border-purple-500/20 p-6 hover:border-purple-500/40 transition-colors"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-purple-600/20 flex items-center justify-center">
-                    <UserCircleIcon className="w-6 h-6 text-purple-400" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">
-                      {client.name || client.subdomain}
-                    </h3>
-                    <p className="text-sm text-slate-400">{client.subdomain}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm text-slate-300">
-                  <MailIcon className="w-4 h-4" />
-                  <span>APIs:</span>
-                  <div className="flex gap-2">
-                    {hasSmartlead && (
-                      <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-400 text-xs">
-                        Smartlead
-                      </span>
-                    )}
-                    {hasLemlist && (
-                      <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-xs">
-                        Lemlist
-                      </span>
-                    )}
-                    {!hasSmartlead && !hasLemlist && (
-                      <span className="text-slate-500 text-xs">None configured</span>
-                    )}
-                  </div>
-                </div>
-                <div className="text-xs text-slate-500">
-                  Created: {new Date(client.createdAt).toLocaleDateString()}
-                </div>
-              </div>
-            </Link>
-          );
-        })}
-      </div>
-
-      {tenants.length === 0 && (
-        <div className="glass rounded-xl border-purple-500/20 p-12 text-center">
-          <UserCircleIcon className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-white mb-2">No clients yet</h3>
-          <p className="text-slate-400">Clients will appear here once they're added to the system.</p>
-        </div>
-      )}
     </div>
   );
 }

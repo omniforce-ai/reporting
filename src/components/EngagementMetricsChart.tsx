@@ -1,6 +1,7 @@
 import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { ChartBarIcon } from '@/components/icons';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 
 interface EngagementMetricsChartProps {
   title: string;
@@ -16,127 +17,135 @@ interface EngagementMetricsChartProps {
   }>;
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div 
-        className="border border-purple-500/50 p-3 rounded-xl text-xs shadow-2xl shadow-purple-500/30 backdrop-blur-xl bg-gradient-to-br from-slate-900/95 to-slate-800/95"
-        style={{ 
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-        }}
-      >
-        <p className="text-slate-100 mb-2 font-semibold">{`${label}`}</p>
-        {payload.map((entry: any, index: number) => (
-          <p key={index} className="text-sm mb-1" style={{ color: entry.color }}>
-            <span className="font-semibold">{entry.name}:</span> {entry.value}
-          </p>
-        ))}
-      </div>
-    );
-  }
-  return null;
-};
+const chartConfig = {
+  emailSent: {
+    label: "Email Sent",
+    color: "hsl(var(--chart-1))",
+  },
+  emailOpened: {
+    label: "Email Opened",
+    color: "hsl(var(--chart-2))",
+  },
+  replied: {
+    label: "Replied",
+    color: "hsl(var(--chart-3))",
+  },
+  positiveReplied: {
+    label: "Positive Replied",
+    color: "hsl(var(--chart-4))",
+  },
+  bounced: {
+    label: "Bounced",
+    color: "hsl(var(--chart-5))",
+  },
+  unsubscribed: {
+    label: "Unsubscribed",
+    color: "hsl(var(--destructive))",
+  },
+} satisfies ChartConfig;
 
 const EngagementMetricsChart: React.FC<EngagementMetricsChartProps> = ({ title, description, data }) => {
   return (
-    <div 
-      className="bg-white/5 backdrop-blur-md rounded-xl overflow-hidden border border-white/10 hover:border-purple-500/50 transition-all duration-300 shadow-xl shadow-black/20 hover:shadow-purple-500/10 mb-4"
-    >
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-white/10">
-        <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-600/10 border border-purple-500/20">
-          <ChartBarIcon className="w-3.5 h-3.5 text-purple-400" />
-        </div>
-        <div className="flex-1">
-          <div className="text-base font-semibold text-white">{title}</div>
-          {description && (
-            <div className="text-xs text-slate-400 mt-0.5">{description}</div>
-          )}
-        </div>
-      </div>
-      <div className="h-72 p-6 pt-4">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 50 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} opacity={0.3} />
+    <Card className="@container/card">
+      <CardHeader className="relative">
+        <CardTitle>{title}</CardTitle>
+        {description && <CardDescription>{description}</CardDescription>}
+      </CardHeader>
+      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+        <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
+          <LineChart data={data}>
+            <CartesianGrid vertical={false} />
             <XAxis 
               dataKey="name" 
-              tick={{ fill: '#94a3b8', fontSize: 11 }} 
-              axisLine={false} 
               tickLine={false}
+              axisLine={false}
+              tickMargin={8}
+              minTickGap={32}
+              tickFormatter={(value) => {
+                if (typeof value === 'string' && value.includes('-')) {
+                  const date = new Date(value);
+                  return date.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  });
+                }
+                return value;
+              }}
             />
-            <YAxis 
-              domain={[0, 'dataMax']}
-              tick={{ fill: '#94a3b8', fontSize: 11 }} 
-              axisLine={false} 
-              tickLine={false}
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  labelFormatter={(value) => {
+                    if (typeof value === 'string' && value.includes('-')) {
+                      return new Date(value).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      });
+                    }
+                    return value;
+                  }}
+                  indicator="dot"
+                />
+              }
             />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend
+            <ChartLegend
               verticalAlign="bottom"
               height={36}
-              iconType="circle"
-              iconSize={8}
-              wrapperStyle={{ paddingTop: '20px' }}
-              formatter={(value) => <span className="text-slate-300 text-xs">{value}</span>}
+              content={<ChartLegendContent />}
             />
             <Line 
               type="monotone" 
               dataKey="Email Sent" 
-              name="Email Sent"
-              stroke="#9333ea" 
+              name="emailSent"
+              stroke="var(--color-emailSent)"
               strokeWidth={2}
-              dot={{ r: 3, fill: '#9333ea' }}
-              activeDot={{ r: 5 }}
+              dot={false}
             />
             <Line 
               type="monotone" 
               dataKey="Email Opened" 
-              name="Email Opened"
-              stroke="#c084fc" 
+              name="emailOpened"
+              stroke="var(--color-emailOpened)"
               strokeWidth={2}
-              dot={{ r: 3, fill: '#c084fc' }}
-              activeDot={{ r: 5 }}
+              dot={false}
             />
             <Line 
               type="monotone" 
               dataKey="Replied" 
-              name="Replied"
-              stroke="#60a5fa" 
+              name="replied"
+              stroke="var(--color-replied)"
               strokeWidth={2}
-              dot={{ r: 3, fill: '#60a5fa' }}
-              activeDot={{ r: 5 }}
+              dot={false}
             />
             <Line 
               type="monotone" 
               dataKey="Positive Replied" 
-              name="Positive Replied"
-              stroke="#22c55e" 
+              name="positiveReplied"
+              stroke="var(--color-positiveReplied)"
               strokeWidth={2}
-              dot={{ r: 3, fill: '#22c55e' }}
-              activeDot={{ r: 5 }}
+              dot={false}
             />
             <Line 
               type="monotone" 
               dataKey="Bounced" 
-              name="Bounced"
-              stroke="#ef4444" 
+              name="bounced"
+              stroke="var(--color-bounced)"
               strokeWidth={2}
-              dot={{ r: 3, fill: '#ef4444' }}
-              activeDot={{ r: 5 }}
+              dot={false}
             />
             <Line 
               type="monotone" 
               dataKey="Unsubscribed" 
-              name="Unsubscribed"
-              stroke="#f97316" 
+              name="unsubscribed"
+              stroke="var(--color-unsubscribed)"
               strokeWidth={2}
-              dot={{ r: 3, fill: '#f97316' }}
-              activeDot={{ r: 5 }}
+              dot={false}
             />
           </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+        </ChartContainer>
+      </CardContent>
+    </Card>
   );
 };
 

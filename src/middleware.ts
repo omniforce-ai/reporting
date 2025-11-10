@@ -109,7 +109,7 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
     
     // User is signed in - redirect based on role
     if (role === 'admin') {
-      return NextResponse.redirect(new URL('/admin', request.url));
+      return NextResponse.redirect(new URL('/admin/clients', request.url));
     } else if (clientSlug) {
       // Redirect clients to their client dashboard
       return NextResponse.redirect(new URL(`/clients/${clientSlug}/dashboard`, request.url));

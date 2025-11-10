@@ -12,9 +12,9 @@ export default async function HomePage() {
   const role = await getCurrentUserRole();
   const clientSlug = await getCurrentUserClientSlug();
   
-  // Redirect admins to admin dashboard, clients to their client dashboard
+  // Redirect admins to clients page, clients to their client dashboard
   if (role === 'admin') {
-    redirect('/admin');
+    redirect('/admin/clients');
   } else if (clientSlug) {
     redirect(`/clients/${clientSlug}/dashboard`);
   } else {

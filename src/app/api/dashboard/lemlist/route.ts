@@ -116,9 +116,19 @@ async function fetchAllActivities(
   const allActivities: Activity[] = [];
   let offset = 0;
   const limit = 100;
+  const maxActivities = 10000; // Safety limit to prevent excessive fetching
   let hasMore = true;
+  
+  // Parse date range once if provided
+  let start: Date | null = null;
+  let end: Date | null = null;
+  if (startDate && endDate) {
+    start = new Date(startDate);
+    end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+  }
 
-  while (hasMore) {
+  while (hasMore && allActivities.length < maxActivities) {
     const activities = await fetchActivitiesPage(
       email,
       apiKey,
@@ -130,28 +140,38 @@ async function fetchAllActivities(
 
     if (activities.length === 0) {
       hasMore = false;
-    } else {
-      // Filter by date range if provided
-      let filteredActivities = activities;
-      if (startDate && endDate) {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        
-        filteredActivities = activities.filter(activity => {
-          const activityDate = new Date(activity.createdAt);
-          return activityDate >= start && activityDate <= end;
-        });
-      }
+      break;
+    }
 
-      allActivities.push(...filteredActivities);
+    // Filter by date range if provided
+    let filteredActivities = activities;
+    if (start && end) {
+      filteredActivities = activities.filter(activity => {
+        const activityDate = new Date(activity.createdAt);
+        return activityDate >= start! && activityDate <= end!;
+      });
       
-      if (activities.length < limit) {
-        hasMore = false;
-      } else {
-        offset += limit;
-        await new Promise(resolve => setTimeout(resolve, 250));
+      // Check if we've gone past the start date (activities are typically newest first)
+      // If all activities in this batch are before the start date, we can stop
+      const oldestActivity = activities[activities.length - 1];
+      if (oldestActivity?.createdAt) {
+        const oldestDate = new Date(oldestActivity.createdAt);
+        if (oldestDate < start) {
+          // All remaining activities will be before the start date
+          hasMore = false;
+        }
       }
+    }
+
+    allActivities.push(...filteredActivities);
+    
+    // Stop if we got fewer results than requested (last page)
+    if (activities.length < limit) {
+      hasMore = false;
+    } else {
+      offset += limit;
+      // Rate limiting: wait between requests
+      await new Promise(resolve => setTimeout(resolve, 250));
     }
   }
 
@@ -445,7 +465,7 @@ export async function GET(request: Request) {
             : (emailsSent > 0 ? 'No clicks' : 'N/A'),
           comparisonText: emailsClicked > 0 
             ? `${formatNumber(emailsClicked)} clicks`
-            : (emailsSent > 0 ? 'Link tracking may be disabled' : 'No data'),
+            : 'No data',
         },
         {
           title: 'Reply Rate',

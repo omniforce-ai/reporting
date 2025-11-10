@@ -8,42 +8,14 @@ import MetricCard from '@/components/MetricCard';
 import { DashboardSkeleton } from '@/components/LoadingSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
-import { AnalyticsIcon, CalendarIcon, CheckCircleIcon, ClockIcon, DownloadIcon, MailIcon, TasksIcon, ThumbsUpIcon, XCircleIcon } from '@/components/icons';
+import { AnalyticsIcon, CalendarIcon, CheckCircleIcon, ClockIcon, MailIcon, TasksIcon, ThumbsUpIcon, XCircleIcon } from '@/components/icons';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { FeatureDefinition } from '@/lib/config/features';
 import { getAllFeatures } from '@/lib/config/features';
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-
-// Temporary mock data - will be replaced with real API data
-const getMockDataForFeature = (featureId: string) => {
-  if (featureId === 'smartlead' || featureId === 'lemlist') {
-    return {
-      metrics: [
-        { title: 'Emails Processed', value: '1,281', comparisonText: '+12% from prior period', icon: CheckCircleIcon },
-        { title: 'Emails Escalated', value: '73', comparisonText: '-5% from prior period', icon: XCircleIcon },
-        { title: 'Avg. Response Time', value: '32m', comparisonText: '-8m from prior period', icon: ClockIcon },
-        { title: 'Categorization Accuracy', value: '98.7%', comparisonText: '+0.5% from prior period', icon: TasksIcon },
-      ],
-      completionRate: { title: 'Completion rate', percentage: 94.3, icon: CheckCircleIcon },
-      feedbackScore: { title: 'Feedback score', percentage: 89.1, positiveCount: 102, negativeCount: 13, icon: TasksIcon },
-      evaluationHistory: {
-        title: '% Evaluation scores history',
-        description: 'Showing average evaluation scores over the selected period of time',
-        data: [
-          { name: '17/2', avgScore: 2.1 }, { name: '18/2', avgScore: 1.9 }, { name: '19/2', avgScore: 2.5 }, { name: '20/2', avgScore: 2.3 }, { name: '21/2', avgScore: 2.8 },
-        ]
-      },
-      tasksHistory: {
-        title: 'Email Volume',
-        description: 'Showing processed and escalated email counts over the selected period of time',
-        data: [
-          { name: '17/2', completed: 210, failed: 15 }, { name: '18/2', completed: 250, failed: 12 }, { name: '19/2', completed: 230, failed: 18 }, { name: '20/2', completed: 280, failed: 10 }, { name: '21/2', completed: 310, failed: 12 },
-        ]
-      }
-    };
-  }
-  return null;
-};
 
 export default function ClientDashboardPage() {
   const params = useParams();
@@ -141,8 +113,12 @@ export default function ClientDashboardPage() {
 
   // Get current client info using path-based client name
   useEffect(() => {
-    // Use the clientname from URL params - middleware sets x-tenant-client header
-    fetch(`/api/tenant/config?client=${clientname}`)
+    let isMounted = true;
+    const abortController = new AbortController();
+    
+    fetch(`/api/tenant/config?client=${clientname}`, {
+      signal: abortController.signal,
+    })
       .then(async res => {
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({}));
@@ -151,6 +127,8 @@ export default function ClientDashboardPage() {
         return res.json();
       })
       .then(data => {
+        if (!isMounted) return;
+        
         if (data.tenant) {
           const apiKeys = (data.tenant.apiKeys as { smartlead?: string; lemlist?: string } | null) || {};
           const apiSource = apiKeys.smartlead ? 'smartlead' : apiKeys.lemlist ? 'lemlist' : null;
@@ -165,18 +143,36 @@ export default function ClientDashboardPage() {
         }
       })
       .catch(err => {
+        if (!isMounted || err.name === 'AbortError') return;
         console.error('Failed to fetch tenant config:', err);
         setLoading(false);
       });
+    
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
   }, [clientname]);
 
   // Fetch enabled features for current client
   useEffect(() => {
     if (!clientInfo) return;
     
-    fetch(`/api/features?client=${clientInfo.subdomain}`)
-      .then(res => res.json())
+    let isMounted = true;
+    const abortController = new AbortController();
+    
+    fetch(`/api/features?client=${clientInfo.subdomain}`, {
+      signal: abortController.signal,
+    })
+      .then(async res => {
+        if (!res.ok) {
+          throw new Error('Failed to fetch features');
+        }
+        return res.json();
+      })
       .then(data => {
+        if (!isMounted) return;
+        
         const features = Array.isArray(data.enabledFeatures) ? data.enabledFeatures : [];
         setEnabledFeatures(features);
         if (features.length > 0 && !activeTabId) {
@@ -185,6 +181,8 @@ export default function ClientDashboardPage() {
         setLoading(false);
       })
       .catch(err => {
+        if (!isMounted || err.name === 'AbortError') return;
+        
         console.error('Failed to fetch features:', err);
         // Fallback: show tabs based on API keys
         const allFeatures = getAllFeatures();
@@ -209,7 +207,12 @@ export default function ClientDashboardPage() {
         }
         setLoading(false);
       });
-  }, [clientInfo, activeTabId]);
+    
+    return () => {
+      isMounted = false;
+      abortController.abort();
+    };
+  }, [clientInfo]);
 
   // Fetch data when smartlead or lemlist tab is active
   useEffect(() => {
@@ -217,28 +220,44 @@ export default function ClientDashboardPage() {
       setIsLoadingEmailData(true);
       const endpoint = activeTabId === 'smartlead' ? '/api/dashboard/email' : '/api/dashboard/lemlist';
       
-      fetch(`${endpoint}?client=${clientInfo.subdomain}&startDate=${dateRange.start}&endDate=${dateRange.end}`)
-        .then(res => res.json())
+      const abortController = new AbortController();
+      let isMounted = true;
+      
+      fetch(`${endpoint}?client=${clientInfo.subdomain}&startDate=${dateRange.start}&endDate=${dateRange.end}`, {
+        signal: abortController.signal,
+      })
+        .then(async res => {
+          if (!res.ok) {
+            const errorData = await res.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Failed to fetch dashboard data');
+          }
+          return res.json();
+        })
         .then(response => {
+          if (!isMounted) return;
+          
           // API returns { data: {...} }, extract the data object
           const dashboardData = response.data || response;
           setEmailData(dashboardData);
           setIsLoadingEmailData(false);
         })
         .catch(err => {
+          if (!isMounted || err.name === 'AbortError') return;
+          
           console.error('Failed to fetch dashboard data:', err);
           setIsLoadingEmailData(false);
         });
+      
+      return () => {
+        isMounted = false;
+        abortController.abort();
+      };
     } else {
       // Clear data when switching to other tabs
       setEmailData(null);
+      setIsLoadingEmailData(false);
     }
-  }, [activeTabId, clientInfo, dateRange]);
-
-  const handleExport = (format: 'csv' | 'pdf') => {
-    // Export functionality to be implemented
-    console.log('Export requested:', format, 'for client:', clientInfo?.name);
-  };
+  }, [activeTabId, clientInfo?.subdomain, dateRange.start, dateRange.end]);
 
   if (loading) {
     return <DashboardSkeleton />;
@@ -254,10 +273,8 @@ export default function ClientDashboardPage() {
     );
   }
 
-  const mockData = getMockDataForFeature(activeTabId || '');
-  
   // Transform API data to match expected format
-  let displayData = emailData || mockData;
+  let displayData = null;
   
   if (emailData) {
     // Transform lemlist/smartlead API format to match dashboard expectations
@@ -279,20 +296,18 @@ export default function ClientDashboardPage() {
         };
       }
       
-      // Use replyRateGauge as feedbackScore equivalent
-      if (emailData.replyRateGauge) {
-        transformed.feedbackScore = {
-          title: emailData.replyRateGauge.title || 'Reply Rate',
-          percentage: emailData.replyRateGauge.percentage || 0,
-          positiveCount: 0,
-          negativeCount: 0,
-          icon: TasksIcon,
+      // Use clickRateGauge as second gauge if available
+      if (emailData.clickRateGauge) {
+        transformed.clickRateGauge = {
+          title: emailData.clickRateGauge.title || 'Click Rate',
+          percentage: emailData.clickRateGauge.percentage || 0,
+          icon: CheckCircleIcon,
         };
       }
       
-      // Use activityTimeline as evaluationHistory equivalent
+      // Use activityTimeline for activity over time (repurposed from evaluationHistory)
       if (emailData.activityTimeline?.data) {
-        transformed.evaluationHistory = {
+        transformed.activityTimeline = {
           title: emailData.activityTimeline.title || 'Activity Timeline',
           description: emailData.activityTimeline.description || 'Daily email activity over time',
           data: emailData.activityTimeline.data.map((item: any) => ({
@@ -302,15 +317,14 @@ export default function ClientDashboardPage() {
         };
       }
       
-      // Use campaignPerformance as tasksHistory equivalent
+      // Use campaignPerformance for campaign comparison (repurposed from tasksHistory)
       if (emailData.campaignPerformance?.data) {
-        transformed.tasksHistory = {
+        transformed.campaignPerformance = {
           title: emailData.campaignPerformance.title || 'Campaign Performance',
           description: emailData.campaignPerformance.description || 'Campaign performance comparison',
           data: emailData.campaignPerformance.data.map((item: any) => ({
             name: item.name,
-            completed: item.value || 0,
-            failed: 0,
+            value: item.value || 0,
           })),
         };
       }
@@ -318,25 +332,18 @@ export default function ClientDashboardPage() {
     
     // Handle smartlead format
     if (emailData.engagementMetrics) {
-      transformed.evaluationHistory = {
+      transformed.engagementMetrics = {
         title: emailData.engagementMetrics.title || 'Email Engagement Metrics',
         description: emailData.engagementMetrics.description || 'Email engagement over time',
-        data: emailData.engagementMetrics.data?.map((item: any) => ({
-          name: item.name,
-          avgScore: item['Email Opened'] || 0,
-        })) || [],
+        data: emailData.engagementMetrics.data || [],
       };
     }
     
     if (emailData.engagementFunnel) {
-      transformed.tasksHistory = {
+      transformed.engagementFunnel = {
         title: emailData.engagementFunnel.title || 'Email Engagement Funnel',
         description: emailData.engagementFunnel.description || 'Journey from delivery to conversion',
-        data: emailData.engagementFunnel.data?.map((item: any) => ({
-          name: item.name,
-          completed: item.value || 0,
-          failed: 0,
-        })) || [],
+        data: emailData.engagementFunnel.data || [],
       };
     }
     
@@ -353,159 +360,159 @@ export default function ClientDashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header with Date Range and Export */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="relative" ref={datePickerRef}>
-            <button
-              onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 border border-purple-500/20 text-white hover:border-purple-500 transition-colors"
-            >
-              <CalendarIcon className="w-5 h-5" />
-              <span className="text-sm">
-                {dateRange.start} - {dateRange.end}
-              </span>
-            </button>
-            
-            {isDatePickerOpen && (
-              <div className="absolute top-full left-0 mt-2 p-4 rounded-lg bg-slate-800 border border-purple-500/20 z-50 min-w-[300px]">
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  {['last7', 'last14', 'last30', 'last90', 'thisMonth', 'lastMonth', 'last3Months', 'last6Months'].map((preset) => (
-                    <button
-                      key={preset}
-                      onClick={() => {
-                        handlePresetSelect(preset);
-                        setIsDatePickerOpen(false);
-                      }}
-                      className={`px-3 py-2 text-sm rounded ${
-                        selectedPreset === preset
-                          ? 'bg-purple-600 text-white'
-                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      }`}
-                    >
-                      {preset.replace(/([A-Z])/g, ' $1').trim()}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="date"
-                    value={dateRange.start}
-                    onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                    className="flex-1 px-3 py-2 rounded bg-slate-700 border border-purple-500/20 text-white text-sm"
-                  />
-                  <input
-                    type="date"
-                    value={dateRange.end}
-                    onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                    className="flex-1 px-3 py-2 rounded bg-slate-700 border border-purple-500/20 text-white text-sm"
-                  />
+    <div className="flex flex-1 flex-col">
+      <div className="@container/main flex flex-1 flex-col gap-2">
+        <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+          {/* Header with Date Range */}
+          <div className="px-4 lg:px-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="relative" ref={datePickerRef}>
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+                    className="flex items-center gap-2"
+                  >
+                    <CalendarIcon className="w-4 h-4" />
+                    <span className="text-sm">
+                      {dateRange.start} - {dateRange.end}
+                    </span>
+                  </Button>
+                
+                  {isDatePickerOpen && (
+                    <div className="absolute top-full left-0 mt-2 p-4 rounded-lg border bg-card shadow-lg z-50 min-w-[300px]">
+                      <div className="grid grid-cols-2 gap-2 mb-4">
+                        {['last7', 'last14', 'last30', 'last90', 'thisMonth', 'lastMonth', 'last3Months', 'last6Months'].map((preset) => (
+                          <Button
+                            key={preset}
+                            variant={selectedPreset === preset ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => {
+                              handlePresetSelect(preset);
+                              setIsDatePickerOpen(false);
+                            }}
+                          >
+                            {preset.replace(/([A-Z])/g, ' $1').trim()}
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          type="date"
+                          value={dateRange.start}
+                          onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                          className="flex-1"
+                        />
+                        <Input
+                          type="date"
+                          value={dateRange.end}
+                          onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-        
-        {(activeTabId === 'smartlead' || activeTabId === 'lemlist') && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleExport('csv')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 border border-purple-500/20 text-white hover:border-purple-500 transition-colors"
-            >
-              <DownloadIcon className="w-4 h-4" />
-              Export CSV
-            </button>
-            <button
-              onClick={() => handleExport('pdf')}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 border border-purple-500/20 text-white hover:border-purple-500 transition-colors"
-            >
-              <DownloadIcon className="w-4 h-4" />
-              Export PDF
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Feature Tabs */}
-      <div className="flex gap-2 border-b border-purple-500/20">
-        {enabledFeatures.map((feature) => (
-          <button
-            key={feature.id}
-            onClick={() => setActiveTabId(feature.id)}
-            className={`px-6 py-3 font-medium transition-colors border-b-2 ${
-              activeTabId === feature.id
-                ? 'border-purple-500 text-purple-400'
-                : 'border-transparent text-slate-400 hover:text-slate-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {feature.icon && <feature.icon className="w-5 h-5" />}
-              {feature.name}
             </div>
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      {isLoadingEmailData ? (
-        <DashboardSkeleton />
-      ) : (
-        <div className="space-y-6">
-          {/* Metrics Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {displayData.metrics?.map((metric: any, index: number) => (
-              <MetricCard
-                key={index}
-                title={metric.title}
-                value={metric.value}
-                comparisonText={metric.comparisonText}
-                icon={metric.icon || CheckCircleIcon}
-              />
-            ))}
           </div>
 
-          {/* Charts Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {displayData.completionRate && (
-              <GaugeChartCard
-                title={displayData.completionRate.title}
-                percentage={displayData.completionRate.percentage}
-                icon={displayData.completionRate.icon}
-              />
-            )}
-            
-            {displayData.feedbackScore && (
-              <GaugeChartCard
-                title={displayData.feedbackScore.title}
-                percentage={displayData.feedbackScore.percentage}
-                positiveCount={displayData.feedbackScore.positiveCount}
-                negativeCount={displayData.feedbackScore.negativeCount}
-                icon={displayData.feedbackScore.icon}
-              />
-            )}
-          </div>
+          {/* Feature Tabs */}
+          {enabledFeatures.length > 0 && (
+            <div className="px-4 lg:px-6">
+              <Tabs value={activeTabId || undefined} onValueChange={setActiveTabId} className="w-full">
+                <TabsList className="w-full justify-start">
+                  {enabledFeatures.map((feature) => (
+                    <TabsTrigger key={feature.id} value={feature.id} className="flex items-center gap-2">
+                      {feature.icon && <feature.icon className="w-4 h-4" />}
+                      {feature.name}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
 
-          {/* History Charts */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {displayData.evaluationHistory && (
-              <LineChartCard
-                title={displayData.evaluationHistory.title}
-                description={displayData.evaluationHistory.description}
-                data={displayData.evaluationHistory.data}
-              />
-            )}
-            
-            {displayData.tasksHistory && (
-              <LineChartCard
-                title={displayData.tasksHistory.title}
-                description={displayData.tasksHistory.description}
-                data={displayData.tasksHistory.data}
-              />
-            )}
-          </div>
+                {/* Content */}
+                {enabledFeatures.map((feature) => (
+                  <TabsContent key={feature.id} value={feature.id} className="mt-4">
+                    {isLoadingEmailData ? (
+                      <DashboardSkeleton />
+                    ) : (
+                      <div className="space-y-6">
+                        {/* Metrics Grid */}
+                        {displayData.metrics && displayData.metrics.length > 0 && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {displayData.metrics.map((metric: any, index: number) => (
+                              <MetricCard
+                                key={index}
+                                title={metric.title}
+                                value={metric.value}
+                                comparisonText={metric.comparisonText}
+                                icon={metric.icon || CheckCircleIcon}
+                              />
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Charts Grid - Only show gauge charts that are supported by APIs */}
+                        {(displayData.completionRate || displayData.clickRateGauge) && (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {displayData.completionRate && (
+                              <GaugeChartCard
+                                title={displayData.completionRate.title}
+                                percentage={displayData.completionRate.percentage}
+                                icon={displayData.completionRate.icon}
+                              />
+                            )}
+                            
+                            {displayData.clickRateGauge && (
+                              <GaugeChartCard
+                                title={displayData.clickRateGauge.title}
+                                percentage={displayData.clickRateGauge.percentage}
+                                icon={displayData.clickRateGauge.icon}
+                              />
+                            )}
+                          </div>
+                        )}
+
+                        {/* Activity Charts - Only show charts supported by APIs */}
+                        {(displayData.activityTimeline || displayData.campaignPerformance || displayData.engagementMetrics) && (
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {displayData.activityTimeline && (
+                              <LineChartCard
+                                title={displayData.activityTimeline.title}
+                                description={displayData.activityTimeline.description}
+                                data={displayData.activityTimeline.data}
+                              />
+                            )}
+                            
+                            {displayData.campaignPerformance && (
+                              <LineChartCard
+                                title={displayData.campaignPerformance.title}
+                                description={displayData.campaignPerformance.description}
+                                data={displayData.campaignPerformance.data.map((item: any) => ({
+                                  name: item.name,
+                                  avgScore: item.value || 0,
+                                }))}
+                              />
+                            )}
+                            
+                            {displayData.engagementMetrics && (
+                              <EngagementMetricsChart
+                                title={displayData.engagementMetrics.title}
+                                description={displayData.engagementMetrics.description}
+                                data={displayData.engagementMetrics.data}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </TabsContent>
+                ))}
+              </Tabs>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

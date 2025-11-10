@@ -4,6 +4,7 @@ import { useUser } from '@clerk/nextjs';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { HomeIcon } from '@/components/icons';
+import { Button } from '@/components/ui/button';
 
 export default function AdminNavButton() {
   const { user, isLoaded } = useUser();
@@ -28,14 +29,14 @@ export default function AdminNavButton() {
   }
 
   return (
-    <button
-      onClick={() => router.push('/admin')}
-      className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium shadow-lg shadow-purple-500/30 transition-all duration-300 hover:scale-105"
-      title="Go to Admin Dashboard"
+    <Button
+      onClick={() => router.push('/admin/clients')}
+      className="fixed bottom-6 right-6 z-50 shadow-lg shadow-primary/30 transition-all duration-300 hover:scale-105"
+      title="Go to Admin"
     >
-      <HomeIcon className="w-5 h-5" />
-      <span>Admin</span>
-    </button>
+      <HomeIcon className="w-4 h-4" />
+      Admin
+    </Button>
   );
 }
 

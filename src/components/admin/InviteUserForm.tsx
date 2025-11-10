@@ -2,6 +2,27 @@
 
 import { useState, useEffect } from 'react';
 import { UsersIcon } from '@/components/icons';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { CopyIcon, CheckIcon } from 'lucide-react';
 
 type Client = {
   id: string;
@@ -110,173 +131,166 @@ export default function InviteUserForm() {
     }
   };
 
-  return (
-    <>
-      <button
-        onClick={() => setIsOpen(true)}
-        className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium transition-colors flex items-center gap-2"
-      >
-        <UsersIcon className="w-5 h-5" />
-        Invite User
-      </button>
+  const handleClose = () => {
+    setIsOpen(false);
+    setEmail('');
+    setRole('client');
+    setClientSlug('');
+    setInviteUrl(null);
+    setError(null);
+  };
 
-      {isOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="glass rounded-xl border-purple-500/20 p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-white">Invite User</h2>
-              <button
-                onClick={() => {
-                  setIsOpen(false);
-                  setEmail('');
-                  setRole('client');
-                  setClientSlug('');
-                  setInviteUrl(null);
-                  setError(null);
-                }}
-                className="text-slate-400 hover:text-white transition-colors"
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button>
+          <UsersIcon className="w-4 h-4" />
+          Invite User
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Invite User</DialogTitle>
+          <DialogDescription>
+            Send an invitation to a new user. They will receive an email with a link to sign up.
+          </DialogDescription>
+        </DialogHeader>
+
+        {inviteUrl ? (
+          <div className="space-y-4">
+            <Alert className="bg-chart-4/10 border-chart-4/20">
+              <CheckIcon className="h-4 w-4 text-chart-4" />
+              <AlertDescription>
+                <div className="font-semibold mb-2 text-chart-4">Invitation Sent!</div>
+                <p className="text-sm text-chart-4">
+                  An invitation email has been sent to <strong>{email}</strong> with role: <strong>{role}</strong>
+                  {role === 'client' && clientSlug && (
+                    <> for client: <strong>{clients.find(c => c.subdomain === clientSlug)?.name || clientSlug}</strong></>
+                  )}
+                </p>
+              </AlertDescription>
+            </Alert>
+            <div className="space-y-2">
+              <Label htmlFor="inviteUrl">Invite Link (share this if needed):</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="inviteUrl"
+                  type="text"
+                  value={inviteUrl}
+                  readOnly
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={copyInviteLink}
+                >
+                  <CopyIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleClose}
+                className="w-full"
               >
-                ✕
-              </button>
+                Close
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email Address *</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@example.com"
+              />
             </div>
 
-            {inviteUrl ? (
-              <div className="space-y-4">
-                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-                  <h3 className="text-green-400 font-semibold mb-2">Invitation Sent!</h3>
-                  <p className="text-slate-300 text-sm mb-4">
-                    An invitation email has been sent to <strong>{email}</strong> with role: <strong>{role}</strong>
-                    {role === 'client' && clientSlug && (
-                      <> for client: <strong>{clients.find(c => c.subdomain === clientSlug)?.name || clientSlug}</strong></>
-                    )}
-                  </p>
-                  <div className="space-y-2">
-                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Invite Link (share this if needed):
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={inviteUrl}
-                        readOnly
-                        className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-purple-500/20 text-white text-sm focus:outline-none"
-                      />
-                      <button
-                        onClick={copyInviteLink}
-                        className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm transition-colors"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => {
-                    setIsOpen(false);
-                    setInviteUrl(null);
-                    setEmail('');
-                  }}
-                  className="w-full px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-700 text-white font-medium transition-colors"
+            <div className="space-y-2">
+              <Label htmlFor="role">Role *</Label>
+              <Select
+                value={role}
+                onValueChange={(value) => {
+                  setRole(value as 'admin' | 'client');
+                  if (value === 'admin') {
+                    setClientSlug('');
+                  }
+                }}
+              >
+                <SelectTrigger id="role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="client">Client</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {role === 'admin' 
+                  ? 'Admins can access the admin dashboard and manage clients/users'
+                  : 'Clients can only view their own analytics dashboard'}
+              </p>
+            </div>
+
+            {role === 'client' && (
+              <div className="space-y-2">
+                <Label htmlFor="client">Client *</Label>
+                <Select
+                  value={clientSlug}
+                  onValueChange={setClientSlug}
+                  required={role === 'client'}
                 >
-                  Close
-                </button>
+                  <SelectTrigger id="client">
+                    <SelectValue placeholder="Select a client..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.map((client) => (
+                      <SelectItem key={client.id} value={client.subdomain}>
+                        {client.name} ({client.subdomain})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Select which client this user will have access to
+                </p>
               </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Email Address *
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg bg-slate-800 border border-purple-500/20 text-white focus:outline-none focus:border-purple-500"
-                    placeholder="user@example.com"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Role *
-                  </label>
-                  <select
-                    value={role}
-                    onChange={(e) => {
-                      setRole(e.target.value as 'admin' | 'client');
-                      if (e.target.value === 'admin') {
-                        setClientSlug('');
-                      }
-                    }}
-                    className="w-full px-4 py-2 rounded-lg bg-slate-800 border border-purple-500/20 text-white focus:outline-none focus:border-purple-500"
-                  >
-                    <option value="admin">Admin</option>
-                    <option value="client">Client</option>
-                  </select>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {role === 'admin' 
-                      ? 'Admins can access the admin dashboard and manage clients/users'
-                      : 'Clients can only view their own analytics dashboard'}
-                  </p>
-                </div>
-
-                {role === 'client' && (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">
-                      Client *
-                    </label>
-                    <select
-                      value={clientSlug}
-                      onChange={(e) => setClientSlug(e.target.value)}
-                      required={role === 'client'}
-                      className="w-full px-4 py-2 rounded-lg bg-slate-800 border border-purple-500/20 text-white focus:outline-none focus:border-purple-500"
-                    >
-                      <option value="">Select a client...</option>
-                      {clients.map((client) => (
-                        <option key={client.id} value={client.subdomain}>
-                          {client.name} ({client.subdomain})
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Select which client this user will have access to
-                    </p>
-                  </div>
-                )}
-
-                {error && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
-                    {error}
-                  </div>
-                )}
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="flex-1 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? 'Sending...' : 'Send Invitation'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsOpen(false);
-                      setEmail('');
-                      setError(null);
-                    }}
-                    className="px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-700 text-white font-medium transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
             )}
-          </div>
-        </div>
-      )}
-    </>
+
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleClose}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? 'Sending...' : 'Send Invitation'}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

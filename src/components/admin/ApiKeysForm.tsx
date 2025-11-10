@@ -3,6 +3,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { EyeIcon, EyeSlashIcon } from '@/components/icons';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 type ApiKeysFormProps = {
   clientSlug: string;
@@ -74,105 +78,107 @@ export default function ApiKeysForm({ clientSlug, initialApiKeys }: ApiKeysFormP
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
-            Smartlead API Key
-          </label>
+        <div className="space-y-2">
+          <Label htmlFor="smartlead">Smartlead API Key</Label>
           <div className="relative">
-            <input
+            <Input
+              id="smartlead"
               type={showSmartlead ? 'text' : 'password'}
               value={smartlead}
               onChange={(e) => setSmartlead(e.target.value)}
               placeholder={hasSmartlead ? maskApiKey(initialApiKeys.smartlead || '') : 'Enter Smartlead API key'}
-              className="w-full px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-10"
+              className="pr-10"
             />
             {hasSmartlead && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
                 onClick={() => setShowSmartlead(!showSmartlead)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
               >
                 {showSmartlead ? (
-                  <EyeSlashIcon className="w-5 h-5" />
+                  <EyeSlashIcon className="h-4 w-4" />
                 ) : (
-                  <EyeIcon className="w-5 h-5" />
+                  <EyeIcon className="h-4 w-4" />
                 )}
-              </button>
+              </Button>
             )}
           </div>
           {hasSmartlead && !showSmartlead && (
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Leave empty to remove. Enter new key to update.
             </p>
           )}
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
-            Lemlist API Key
-          </label>
+        <div className="space-y-2">
+          <Label htmlFor="lemlist">Lemlist API Key</Label>
           <div className="relative">
-            <input
+            <Input
+              id="lemlist"
               type={showLemlist ? 'text' : 'password'}
               value={lemlist}
               onChange={(e) => setLemlist(e.target.value)}
               placeholder={hasLemlist ? maskApiKey(initialApiKeys.lemlist || '') : 'Enter Lemlist API key'}
-              className="w-full px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent pr-10"
+              className="pr-10"
             />
             {hasLemlist && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
                 onClick={() => setShowLemlist(!showLemlist)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
               >
                 {showLemlist ? (
-                  <EyeSlashIcon className="w-5 h-5" />
+                  <EyeSlashIcon className="h-4 w-4" />
                 ) : (
-                  <EyeIcon className="w-5 h-5" />
+                  <EyeIcon className="h-4 w-4" />
                 )}
-              </button>
+              </Button>
             )}
           </div>
           {hasLemlist && !showLemlist && (
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Leave empty to remove. Enter new key to update.
             </p>
           )}
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2">
-            Lemlist Email (optional)
-          </label>
-          <input
+        <div className="space-y-2">
+          <Label htmlFor="lemlistEmail">Lemlist Email (optional)</Label>
+          <Input
+            id="lemlistEmail"
             type="email"
             value={lemlistEmail}
             onChange={(e) => setLemlistEmail(e.target.value)}
             placeholder="Enter email associated with Lemlist account"
-            className="w-full px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           />
         </div>
       </div>
 
       {error && (
-        <div className="px-4 py-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
       {success && (
-        <div className="px-4 py-3 bg-green-500/20 border border-green-500/50 rounded-lg text-green-400 text-sm">
-          API keys updated successfully
-        </div>
+        <Alert className="bg-chart-4/10 border-chart-4/20">
+          <AlertDescription className="text-chart-4">
+            API keys updated successfully
+          </AlertDescription>
+        </Alert>
       )}
 
-      <button
+      <Button
         type="submit"
         disabled={loading}
-        className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+        className="w-full"
       >
         {loading ? 'Saving...' : 'Save API Keys'}
-      </button>
+      </Button>
     </form>
   );
 }
