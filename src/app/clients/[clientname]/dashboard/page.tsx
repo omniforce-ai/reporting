@@ -201,7 +201,7 @@ export default function ClientDashboardPage() {
           // Convert feature ID strings to feature definition objects
           const features: FeatureDefinition[] = featureIds
             .map((id: string) => getFeatureDefinition(id as any))
-            .filter((f): f is FeatureDefinition => f !== null);
+            .filter((f: FeatureDefinition | null): f is FeatureDefinition => f !== null);
           
           setEnabledFeatures(features);
           
