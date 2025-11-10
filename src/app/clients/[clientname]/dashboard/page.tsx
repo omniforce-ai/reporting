@@ -8,12 +8,13 @@ import MetricCard from '@/components/MetricCard';
 import { DashboardSkeleton, DashboardContentSkeleton } from '@/components/LoadingSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
-import { AnalyticsIcon, CalendarIcon, CheckCircleIcon, ClockIcon, MailIcon, TasksIcon, ThumbsUpIcon, XCircleIcon } from '@/components/icons';
+import { AnalyticsIcon, CheckCircleIcon, ClockIcon, MailIcon, TasksIcon, ThumbsUpIcon, XCircleIcon } from '@/components/icons';
+import { Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import type { FeatureDefinition } from '@/lib/config/features';
-import { getAllFeatures } from '@/lib/config/features';
+import { getAllFeatures, getFeatureDefinition } from '@/lib/config/features';
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 
@@ -89,11 +90,64 @@ export default function ClientDashboardPage() {
   const [dateRange, setDateRange] = useState(getDefaultDateRange());
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
+  const presetLabels: Record<string, string> = {
+    last7: 'Last 7 days',
+    last14: 'Last 14 days',
+    last30: 'Last 30 days',
+    last90: 'Last 90 days',
+    thisMonth: 'This month',
+    lastMonth: 'Last month',
+    last3Months: 'Last 3 months',
+    last6Months: 'Last 6 months',
+  };
+
+  const formatDateRange = (start: string, end: string) => {
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const isToday = endDate.toDateString() === today.toDateString();
+    const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (isToday && daysDiff === 6) return 'Last 7 days';
+    if (isToday && daysDiff === 13) return 'Last 14 days';
+    if (isToday && daysDiff === 29) return 'Last 30 days';
+    if (isToday && daysDiff === 89) return 'Last 90 days';
+    
+    const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+    const yearOptions: Intl.DateTimeFormatOptions = { ...options, year: 'numeric' };
+    
+    const startFormatted = startDate.getFullYear() === endDate.getFullYear() 
+      ? startDate.toLocaleDateString('en-US', options)
+      : startDate.toLocaleDateString('en-US', yearOptions);
+    const endFormatted = endDate.toLocaleDateString('en-US', yearOptions);
+    
+    return `${startFormatted} - ${endFormatted}`;
+  };
+
   const handlePresetSelect = (preset: string) => {
     const range = getPresetRange(preset);
     setDateRange(range);
     setSelectedPreset(preset);
   };
+
+  const handleCustomDateChange = () => {
+    setSelectedPreset('');
+  };
+
+  // Detect if current date range matches a preset
+  useEffect(() => {
+    const presets = ['last7', 'last14', 'last30', 'last90', 'thisMonth', 'lastMonth', 'last3Months', 'last6Months'];
+    for (const preset of presets) {
+      const presetRange = getPresetRange(preset);
+      if (presetRange.start === dateRange.start && presetRange.end === dateRange.end) {
+        setSelectedPreset(preset);
+        return;
+      }
+    }
+    setSelectedPreset('');
+  }, [dateRange.start, dateRange.end]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -111,7 +165,7 @@ export default function ClientDashboardPage() {
     };
   }, [isDatePickerOpen]);
 
-  // Get current client info using path-based client name
+  // Get current client info and features
   useEffect(() => {
     let isMounted = true;
     const abortController = new AbortController();
@@ -132,12 +186,45 @@ export default function ClientDashboardPage() {
         if (data.tenant) {
           const apiKeys = (data.tenant.apiKeys as { smartlead?: string; lemlist?: string } | null) || {};
           const apiSource = apiKeys.smartlead ? 'smartlead' : apiKeys.lemlist ? 'lemlist' : null;
+          const subdomain = data.tenant.subdomain;
           
           setClientInfo({
-            subdomain: data.tenant.subdomain,
-            name: data.tenant.name || data.tenant.subdomain,
+            subdomain,
+            name: data.tenant.name || subdomain,
             apiSource,
           });
+          
+          // Use enabledFeatures from the config response (already included)
+          // API returns array of feature ID strings (e.g., ["smartlead", "lemlist"])
+          const featureIds = Array.isArray(data.enabledFeatures) ? data.enabledFeatures : [];
+          
+          // Convert feature ID strings to feature definition objects
+          const features: FeatureDefinition[] = featureIds
+            .map((id: string) => getFeatureDefinition(id as any))
+            .filter((f): f is FeatureDefinition => f !== null);
+          
+          setEnabledFeatures(features);
+          
+          // Determine active tab - use first enabled feature or fallback to API source
+          let determinedTabId: string | null = null;
+          
+          if (features.length > 0) {
+            determinedTabId = features[0].id;
+          } else if (apiSource) {
+            // Fallback: use API source if no features configured
+            const fallbackFeature = getFeatureDefinition(apiSource);
+            if (fallbackFeature) {
+              determinedTabId = fallbackFeature.id;
+              setEnabledFeatures([fallbackFeature]);
+            }
+          }
+          
+          // Set active tab - this will trigger the second useEffect to fetch dashboard data
+          if (determinedTabId) {
+            setActiveTabId(determinedTabId);
+          }
+          
+          setLoading(false);
         } else {
           throw new Error('Tenant not found');
         }
@@ -154,67 +241,7 @@ export default function ClientDashboardPage() {
     };
   }, [clientname]);
 
-  // Fetch enabled features for current client
-  useEffect(() => {
-    if (!clientInfo) return;
-    
-    let isMounted = true;
-    const abortController = new AbortController();
-    
-    fetch(`/api/features?client=${clientInfo.subdomain}`, {
-      signal: abortController.signal,
-    })
-      .then(async res => {
-        if (!res.ok) {
-          throw new Error('Failed to fetch features');
-        }
-        return res.json();
-      })
-      .then(data => {
-        if (!isMounted) return;
-        
-        const features = Array.isArray(data.enabledFeatures) ? data.enabledFeatures : [];
-        setEnabledFeatures(features);
-        if (features.length > 0 && !activeTabId) {
-          setActiveTabId(features[0].id);
-        }
-        setLoading(false);
-      })
-      .catch(err => {
-        if (!isMounted || err.name === 'AbortError') return;
-        
-        console.error('Failed to fetch features:', err);
-        // Fallback: show tabs based on API keys
-        const allFeatures = getAllFeatures();
-        const enabledTabs: FeatureDefinition[] = [];
-        
-        if (clientInfo.apiSource === 'smartlead') {
-          const smartleadFeature = allFeatures.find(f => f.id === 'smartlead');
-          if (smartleadFeature) {
-            enabledTabs.push(smartleadFeature);
-            setActiveTabId('smartlead');
-          }
-        } else if (clientInfo.apiSource === 'lemlist') {
-          const lemlistFeature = allFeatures.find(f => f.id === 'lemlist');
-          if (lemlistFeature) {
-            enabledTabs.push(lemlistFeature);
-            setActiveTabId('lemlist');
-          }
-        }
-        
-        if (enabledTabs.length > 0) {
-          setEnabledFeatures(enabledTabs);
-        }
-        setLoading(false);
-      });
-    
-    return () => {
-      isMounted = false;
-      abortController.abort();
-    };
-  }, [clientInfo]);
-
-  // Fetch data when smartlead or lemlist tab is active
+  // Fetch data when tab is active and we have client info
   useEffect(() => {
     if ((activeTabId === 'smartlead' || activeTabId === 'lemlist') && clientInfo?.subdomain) {
       setIsLoadingEmailData(true);
@@ -253,9 +280,11 @@ export default function ClientDashboardPage() {
         abortController.abort();
       };
     } else {
-      // Clear data when switching to other tabs
-      setEmailData(null);
-      setIsLoadingEmailData(false);
+      // Only clear data if we had data before (not on initial load)
+      if (emailData !== null) {
+        setEmailData(null);
+        setIsLoadingEmailData(false);
+      }
     }
   }, [activeTabId, clientInfo?.subdomain, dateRange.start, dateRange.end]);
 
@@ -347,7 +376,18 @@ export default function ClientDashboardPage() {
       };
     }
     
-    displayData = transformed;
+    // Only set displayData if it has actual content
+    const hasMetrics = transformed.metrics && transformed.metrics.length > 0;
+    const hasCharts = transformed.completionRate || 
+                     transformed.clickRateGauge || 
+                     transformed.activityTimeline || 
+                     transformed.campaignPerformance || 
+                     transformed.engagementMetrics || 
+                     transformed.engagementFunnel;
+    
+    if (hasMetrics || hasCharts) {
+      displayData = transformed;
+    }
   }
 
   if (isLoadingEmailData) {
@@ -364,7 +404,14 @@ export default function ClientDashboardPage() {
     );
   }
 
-  if (!displayData) {
+  // Check if displayData exists and has content
+  if (!displayData || (!displayData.metrics?.length && 
+      !displayData.completionRate && 
+      !displayData.clickRateGauge && 
+      !displayData.activityTimeline && 
+      !displayData.campaignPerformance && 
+      !displayData.engagementMetrics && 
+      !displayData.engagementFunnel)) {
     return (
       <EmptyState
         icon={AnalyticsIcon}
@@ -388,42 +435,62 @@ export default function ClientDashboardPage() {
                     onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
                     className="flex items-center gap-2"
                   >
-                    <CalendarIcon className="w-4 h-4" />
+                    <Calendar className="w-4 h-4" />
                     <span className="text-sm">
-                      {dateRange.start} - {dateRange.end}
+                      {formatDateRange(dateRange.start, dateRange.end)}
                     </span>
                   </Button>
                 
                   {isDatePickerOpen && (
-                    <div className="absolute top-full left-0 mt-2 p-4 rounded-lg border bg-card shadow-lg z-50 min-w-[300px]">
-                      <div className="grid grid-cols-2 gap-2 mb-4">
-                        {['last7', 'last14', 'last30', 'last90', 'thisMonth', 'lastMonth', 'last3Months', 'last6Months'].map((preset) => (
-                          <Button
-                            key={preset}
-                            variant={selectedPreset === preset ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => {
-                              handlePresetSelect(preset);
-                              setIsDatePickerOpen(false);
-                            }}
-                          >
-                            {preset.replace(/([A-Z])/g, ' $1').trim()}
-                          </Button>
-                        ))}
+                    <div className="absolute top-full left-0 mt-2 p-4 rounded-lg border bg-card shadow-lg z-50 w-[360px]">
+                      <div className="mb-4">
+                        <h3 className="text-sm font-medium mb-3">Quick select</h3>
+                        <div className="grid grid-cols-2 gap-2">
+                          {['last7', 'last14', 'last30', 'last90', 'thisMonth', 'lastMonth', 'last3Months', 'last6Months'].map((preset) => (
+                            <Button
+                              key={preset}
+                              variant={selectedPreset === preset ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => {
+                                handlePresetSelect(preset);
+                                setIsDatePickerOpen(false);
+                              }}
+                              className="justify-start"
+                            >
+                              {presetLabels[preset]}
+                            </Button>
+                          ))}
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Input
-                          type="date"
-                          value={dateRange.start}
-                          onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                          className="flex-1"
-                        />
-                        <Input
-                          type="date"
-                          value={dateRange.end}
-                          onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                          className="flex-1"
-                        />
+                      <div className="border-t pt-4">
+                        <h3 className="text-sm font-medium mb-3">Custom range</h3>
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <label className="text-xs text-muted-foreground mb-1 block">Start date</label>
+                            <Input
+                              type="date"
+                              value={dateRange.start}
+                              onChange={(e) => {
+                                setDateRange({ ...dateRange, start: e.target.value });
+                                handleCustomDateChange();
+                              }}
+                              max={dateRange.end}
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="text-xs text-muted-foreground mb-1 block">End date</label>
+                            <Input
+                              type="date"
+                              value={dateRange.end}
+                              onChange={(e) => {
+                                setDateRange({ ...dateRange, end: e.target.value });
+                                handleCustomDateChange();
+                              }}
+                              min={dateRange.start}
+                              max={new Date().toISOString().split('T')[0]}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -438,8 +505,7 @@ export default function ClientDashboardPage() {
               <Tabs value={activeTabId || undefined} onValueChange={setActiveTabId} className="w-full">
                 <TabsList className="w-full justify-start">
                   {enabledFeatures.map((feature) => (
-                    <TabsTrigger key={feature.id} value={feature.id} className="flex items-center gap-2">
-                      {feature.icon && <feature.icon className="w-4 h-4" />}
+                    <TabsTrigger key={feature.id} value={feature.id}>
                       {feature.name}
                     </TabsTrigger>
                   ))}
