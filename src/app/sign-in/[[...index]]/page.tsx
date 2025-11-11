@@ -1,17 +1,12 @@
 'use client';
 
 import { SignIn } from '@clerk/nextjs';
-import { useSearchParams } from 'next/navigation';
 
 export default function SignInPage() {
-  const searchParams = useSearchParams();
-  const redirectUrl = searchParams.get('redirect_url') || '/';
-  
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-md p-8">
         <SignIn 
-          redirectUrl={redirectUrl}
           appearance={{
             elements: {
               rootBox: "mx-auto",
@@ -30,4 +25,3 @@ export default function SignInPage() {
     </div>
   );
 }
-

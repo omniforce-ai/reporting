@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentTenant } from '@/lib/utils/tenant';
+import { MailIcon } from '@/components/icons';
+import { sortMetrics } from '@/lib/utils/metric-order';
 
 const LEMLIST_BASE_URL = 'https://api.lemlist.com/api';
 const REQUEST_TIMEOUT = 20000;
@@ -13,10 +15,8 @@ function createBasicAuth(email: string, apiKey: string): string {
 interface Activity {
   _id: string;
   type: string;
-  leadId?: string;
   campaignId?: string;
-  sequenceId?: string;
-  stepId?: string;
+  email?: string;
   createdAt: string;
 }
 
@@ -24,8 +24,7 @@ interface Campaign {
   _id: string;
   name: string;
   status?: string;
-  createdAt?: string;
-  updatedAt?: string;
+  isDeleted?: boolean;
 }
 
 function formatNumber(num: number): string {
@@ -35,6 +34,48 @@ function formatNumber(num: number): string {
 function calculatePercentage(value: number, total: number): number {
   if (total === 0) return 0;
   return Math.round((value / total) * 100 * 10) / 10;
+}
+
+function calculatePreviousPeriod(startDate: string, endDate: string): { start: string; end: string } {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  
+  const prevEnd = new Date(start);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - daysDiff);
+  
+  return {
+    start: prevStart.toISOString().split('T')[0],
+    end: prevEnd.toISOString().split('T')[0]
+  };
+}
+
+function formatComparison(current: number, previous: number, isPercentage: boolean = false): string {
+  if (previous === 0) {
+    if (current === 0) return '→ Same';
+    return `↑ +${current}${isPercentage ? '%' : ''} (new)`;
+  }
+  
+  const change = current - previous;
+  const changePercent = ((change / previous) * 100);
+  
+  if (Math.abs(change) < 0.01 && !isPercentage) return '→ Same';
+  if (Math.abs(changePercent) < 0.1 && isPercentage) return '→ Same';
+  
+  const sign = change >= 0 ? '↑' : '↓';
+  const absChange = Math.abs(change);
+  const absChangePercent = Math.abs(changePercent);
+  
+  if (isPercentage) {
+    return `${sign} ${absChangePercent.toFixed(1)}%`;
+  } else {
+    const percentStr = changePercent >= 0 
+      ? `+${changePercent.toFixed(0)}%` 
+      : `${changePercent.toFixed(0)}%`;
+    return `${sign} ${absChange} (${percentStr})`;
+  }
 }
 
 async function fetchCampaigns(email: string, apiKey: string, signal: AbortSignal): Promise<Campaign[]> {
@@ -54,72 +95,27 @@ async function fetchCampaigns(email: string, apiKey: string, signal: AbortSignal
   );
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`Lemlist campaigns API error:`, response.status, errorText);
     return [];
   }
 
   const data = await response.json();
-  // Lemlist API returns { campaigns: [...], pagination: {...} }
   const campaigns = data.campaigns || (Array.isArray(data) ? data : []);
-  return Array.isArray(campaigns) ? campaigns : [];
-}
-
-async function fetchActivitiesPage(
-  email: string,
-  apiKey: string,
-  signal: AbortSignal,
-  campaignId?: string,
-  offset: number = 0,
-  limit: number = 100
-): Promise<Activity[]> {
-  const authHeader = createBasicAuth(email, apiKey);
-  const params = new URLSearchParams({
-    version: 'v2',
-    limit: limit.toString(),
-    offset: offset.toString(),
-  });
-
-  if (campaignId) {
-    params.append('campaignId', campaignId);
-  }
-
-  const response = await fetch(
-    `${LEMLIST_BASE_URL}/activities?${params.toString()}`,
-    {
-      signal,
-      headers: {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-        'User-Agent': 'Omniforce-Reporting/1.0',
-      },
-      next: { revalidate: CACHE_REVALIDATE },
-    }
-  );
-
-  if (!response.ok) {
-    return [];
-  }
-
-  const activities: Activity[] = await response.json();
-  return Array.isArray(activities) ? activities : [];
+  return Array.isArray(campaigns) ? campaigns.filter((c: Campaign) => !c.isDeleted) : [];
 }
 
 async function fetchAllActivities(
   email: string,
   apiKey: string,
   signal: AbortSignal,
-  campaignId?: string,
   startDate?: string,
   endDate?: string
 ): Promise<Activity[]> {
   const allActivities: Activity[] = [];
   let offset = 0;
   const limit = 100;
-  const maxActivities = 10000; // Safety limit to prevent excessive fetching
+  const maxActivities = 10000;
   let hasMore = true;
   
-  // Parse date range once if provided
   let start: Date | null = null;
   let end: Date | null = null;
   if (startDate && endDate) {
@@ -128,36 +124,50 @@ async function fetchAllActivities(
     end.setHours(23, 59, 59, 999);
   }
 
+  const authHeader = createBasicAuth(email, apiKey);
+
   while (hasMore && allActivities.length < maxActivities) {
-    const activities = await fetchActivitiesPage(
-      email,
-      apiKey,
-      signal,
-      campaignId,
-      offset,
-      limit
+    const params = new URLSearchParams({
+      version: 'v2',
+      limit: limit.toString(),
+      offset: offset.toString(),
+    });
+
+    const response = await fetch(
+      `${LEMLIST_BASE_URL}/activities?${params.toString()}`,
+      {
+        signal,
+        headers: {
+          'Authorization': authHeader,
+          'Content-Type': 'application/json',
+          'User-Agent': 'Omniforce-Reporting/1.0',
+        },
+        next: { revalidate: CACHE_REVALIDATE },
+      }
     );
 
-    if (activities.length === 0) {
+    if (!response.ok) {
+      break;
+    }
+
+    const activities: Activity[] = await response.json();
+    if (!Array.isArray(activities) || activities.length === 0) {
       hasMore = false;
       break;
     }
 
-    // Filter by date range if provided
     let filteredActivities = activities;
     if (start && end) {
       filteredActivities = activities.filter(activity => {
+        if (!activity.createdAt) return false;
         const activityDate = new Date(activity.createdAt);
         return activityDate >= start! && activityDate <= end!;
       });
       
-      // Check if we've gone past the start date (activities are typically newest first)
-      // If all activities in this batch are before the start date, we can stop
       const oldestActivity = activities[activities.length - 1];
       if (oldestActivity?.createdAt) {
         const oldestDate = new Date(oldestActivity.createdAt);
         if (oldestDate < start) {
-          // All remaining activities will be before the start date
           hasMore = false;
         }
       }
@@ -165,17 +175,131 @@ async function fetchAllActivities(
 
     allActivities.push(...filteredActivities);
     
-    // Stop if we got fewer results than requested (last page)
     if (activities.length < limit) {
       hasMore = false;
     } else {
       offset += limit;
-      // Rate limiting: wait between requests
       await new Promise(resolve => setTimeout(resolve, 250));
     }
   }
 
   return allActivities;
+}
+
+interface Metrics {
+  totalContacted: number;
+  totalEngagements: number;
+  email: {
+    sent: number;
+    opens: number;
+    openRate: number;
+    clicks: number;
+    clickRate: number;
+    replies: number;
+    positive: number;
+    replyRate: number;
+  };
+  linkedin: {
+    visited: number;
+    invitesSent: number;
+    connectionsAccepted: number;
+    connectionRate: number;
+    messagesSent: number;
+    replies: number;
+    positive: number;
+    replyRate: number;
+  };
+  totalReplies: number;
+  totalPositive: number;
+  overallReplyRate: number;
+}
+
+function calculateMetrics(activities: Activity[]): Metrics {
+  const activitiesByType: Record<string, Activity[]> = {};
+  
+  activities.forEach(activity => {
+    if (!activitiesByType[activity.type]) {
+      activitiesByType[activity.type] = [];
+    }
+    activitiesByType[activity.type].push(activity);
+  });
+
+  const uniqueEmails = new Set<string>();
+  const uniqueLinkedIn = new Set<string>();
+
+  [...(activitiesByType.emailsSent || []), ...(activitiesByType.emailSent || [])].forEach(a => {
+    if (a.email) uniqueEmails.add(a.email);
+  });
+
+  [...(activitiesByType.linkedinVisitDone || []), ...(activitiesByType.linkedinInviteDone || [])].forEach(a => {
+    if (a.email) uniqueLinkedIn.add(a.email);
+  });
+
+  const emailOpens = new Set(
+    [...(activitiesByType.emailsOpened || []), ...(activitiesByType.emailOpened || [])]
+      .map(a => a.email)
+      .filter(Boolean)
+  ).size;
+  
+  const emailClicks = new Set(
+    [...(activitiesByType.emailsClicked || []), ...(activitiesByType.emailClicked || []), ...(activitiesByType.linkClicked || [])]
+      .map(a => a.email)
+      .filter(Boolean)
+  ).size;
+  
+  const emailReplies = (activitiesByType.emailsReplied || []).length + (activitiesByType.emailReplied || []).length;
+  const emailPositive = (activitiesByType.apiInterested || []).length;
+
+  const linkedInConnects = (activitiesByType.linkedinInviteAccepted || []).length;
+  const linkedInMessages = (activitiesByType.linkedinSent || []).length;
+  const linkedInReplies = (activitiesByType.linkedinReplied || []).length;
+  const linkedInPositive = (activitiesByType.linkedinInterested || []).length;
+
+  const emailSent = uniqueEmails.size;
+  const linkedInVisited = uniqueLinkedIn.size;
+  const linkedInInvitesSent = (activitiesByType.linkedinInviteDone || []).length;
+
+  const totalContacted = uniqueEmails.size + uniqueLinkedIn.size;
+  const totalReplies = emailReplies + linkedInReplies;
+  const totalPositive = emailPositive + linkedInPositive;
+  const totalEngagements = emailOpens + emailClicks + linkedInConnects;
+
+  return {
+    totalContacted,
+    totalEngagements,
+    email: {
+      sent: emailSent,
+      opens: emailOpens,
+      openRate: emailSent > 0 ? calculatePercentage(emailOpens, emailSent) : 0,
+      clicks: emailClicks,
+      clickRate: emailOpens > 0 ? calculatePercentage(emailClicks, emailOpens) : 0,
+      replies: emailReplies,
+      positive: emailPositive,
+      replyRate: emailSent > 0 ? calculatePercentage(emailReplies, emailSent) : 0,
+    },
+    linkedin: {
+      visited: linkedInVisited,
+      invitesSent: linkedInInvitesSent,
+      connectionsAccepted: linkedInConnects,
+      connectionRate: linkedInInvitesSent > 0 ? calculatePercentage(linkedInConnects, linkedInInvitesSent) : 0,
+      messagesSent: linkedInMessages,
+      replies: linkedInReplies,
+      positive: linkedInPositive,
+      replyRate: linkedInMessages > 0 ? calculatePercentage(linkedInReplies, linkedInMessages) : 0,
+    },
+    totalReplies,
+    totalPositive,
+    overallReplyRate: totalContacted > 0 ? calculatePercentage(totalReplies, totalContacted) : 0,
+  };
+}
+
+function getWeekKey(date: Date): string {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }
 
 export async function GET(request: Request) {
@@ -187,19 +311,14 @@ export async function GET(request: Request) {
     const tenant = await getCurrentTenant(clientId || undefined);
     
     if (!tenant) {
-      return NextResponse.json(
-        { error: 'Tenant not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
     }
     
     const apiKeys = tenant.apiKeys as { lemlist?: string; lemlistEmail?: string } | null;
     const lemlistApiKey = apiKeys?.lemlist;
-    // Default to alistair@omniforce.ai for Creation Exhibition client
     const lemlistEmail = apiKeys?.lemlistEmail || 'alistair@omniforce.ai';
 
     if (!lemlistApiKey) {
-      console.error(`Missing Lemlist API key for tenant ${tenant.subdomain}. apiKeys:`, JSON.stringify(apiKeys));
       return NextResponse.json(
         { error: 'Lemlist API key not configured for this tenant' },
         { status: 400 }
@@ -210,391 +329,281 @@ export async function GET(request: Request) {
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
     try {
-      // Fetch campaigns
       const campaigns = await fetchCampaigns(lemlistEmail, lemlistApiKey, controller.signal);
+      const activeCampaigns = campaigns.filter(c => c.status === 'active' || c.status === 'running' || !c.status);
       
       if (campaigns.length === 0) {
         clearTimeout(timeoutId);
-        return NextResponse.json({
-          data: {
-            metrics: [
-              { title: 'Emails Sent', value: '0', comparisonText: 'No campaigns' },
-              { title: 'Open Rate', value: '0%', comparisonText: 'No data' },
-              { title: 'Click Rate', value: '0%', comparisonText: 'No data' },
-              { title: 'Reply Rate', value: '0%', comparisonText: 'No data' },
-            ],
-            openRateGauge: { title: 'Open Rate', percentage: 0 },
-            clickRateGauge: { title: 'Click Rate', percentage: 0 },
-            replyRateGauge: { title: 'Reply Rate', percentage: 0 },
-            campaignPerformance: {
-              title: 'Campaign Performance Comparison',
-              description: 'Compare open rates across all campaigns',
-              data: [],
-              valueLabel: 'Open Rate (%)',
-              endpoint: 'GET /api/dashboard/lemlist',
-            },
-            additionalMetrics: {
-              title: 'Additional Metrics',
-              data: [
-                { label: 'Total Campaigns', value: '0' },
-                { label: 'Active Campaigns', value: '0' },
-              ],
-            },
-          },
-        });
+        return NextResponse.json({ data: { metrics: [] } });
       }
 
-      // Fetch all activities for all campaigns
-      // Note: If no date range provided, fetch all activities
-      const allActivities = await fetchAllActivities(
-        lemlistEmail,
-        lemlistApiKey,
-        controller.signal,
-        undefined,
-        startDate,
-        endDate
-      );
-      
-      console.log(`[Lemlist Dashboard] Fetched ${allActivities.length} activities${startDate && endDate ? ` for date range ${startDate} to ${endDate}` : ' (no date filter)'}`);
-      
-      // Log activity type distribution for debugging
-      const activityTypes: Record<string, number> = {};
-      allActivities.forEach(activity => {
-        activityTypes[activity.type] = (activityTypes[activity.type] || 0) + 1;
+      const defaultStartDate = startDate || new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const defaultEndDate = endDate || new Date().toISOString().split('T')[0];
+      const previousPeriod = calculatePreviousPeriod(defaultStartDate, defaultEndDate);
+
+      const [currentActivities, previousActivities] = await Promise.all([
+        fetchAllActivities(lemlistEmail, lemlistApiKey, controller.signal, defaultStartDate, defaultEndDate),
+        fetchAllActivities(lemlistEmail, lemlistApiKey, controller.signal, previousPeriod.start, previousPeriod.end),
+      ]);
+
+      const currentMetrics = calculateMetrics(currentActivities);
+      const previousMetrics = calculateMetrics(previousActivities);
+
+      const campaignReplies: Record<string, { email: number; linkedin: number; positive: number }> = {};
+      const activitiesByWeek: Record<string, {
+        emailOpens: number;
+        emailClicks: number;
+        linkedInVisits: number;
+        linkedInConnects: number;
+        replies: number;
+      }> = {};
+
+      currentActivities.forEach(activity => {
+        if (activity.campaignId) {
+          if (!campaignReplies[activity.campaignId]) {
+            campaignReplies[activity.campaignId] = { email: 0, linkedin: 0, positive: 0 };
+          }
+          
+          if (activity.type === 'emailsReplied' || activity.type === 'emailReplied') {
+            campaignReplies[activity.campaignId].email++;
+          } else if (activity.type === 'linkedinReplied') {
+            campaignReplies[activity.campaignId].linkedin++;
+          } else if (activity.type === 'apiInterested' || activity.type === 'linkedinInterested') {
+            campaignReplies[activity.campaignId].positive++;
+          }
+        }
+
+        if (activity.createdAt) {
+          const date = new Date(activity.createdAt);
+          const weekKey = getWeekKey(date);
+          
+          if (!activitiesByWeek[weekKey]) {
+            activitiesByWeek[weekKey] = {
+              emailOpens: 0,
+              emailClicks: 0,
+              linkedInVisits: 0,
+              linkedInConnects: 0,
+              replies: 0,
+            };
+          }
+
+          if (activity.type === 'emailsOpened' || activity.type === 'emailOpened') {
+            activitiesByWeek[weekKey].emailOpens++;
+          } else if (activity.type === 'emailsClicked' || activity.type === 'emailClicked' || activity.type === 'linkClicked') {
+            activitiesByWeek[weekKey].emailClicks++;
+          } else if (activity.type === 'linkedinVisitDone') {
+            activitiesByWeek[weekKey].linkedInVisits++;
+          } else if (activity.type === 'linkedinInviteAccepted') {
+            activitiesByWeek[weekKey].linkedInConnects++;
+          } else if (activity.type === 'emailsReplied' || activity.type === 'emailReplied' || activity.type === 'linkedinReplied') {
+            activitiesByWeek[weekKey].replies++;
+          }
+        }
       });
-      console.log('[Lemlist Dashboard] Activity types:', activityTypes);
+
+      const campaignPerformance = activeCampaigns
+        .map(campaign => ({
+          name: campaign.name,
+          emailReplies: campaignReplies[campaign._id]?.email || 0,
+          linkedInReplies: campaignReplies[campaign._id]?.linkedin || 0,
+          totalReplies: (campaignReplies[campaign._id]?.email || 0) + (campaignReplies[campaign._id]?.linkedin || 0),
+          positiveReplies: campaignReplies[campaign._id]?.positive || 0,
+        }))
+        .filter(c => c.totalReplies > 0)
+        .sort((a, b) => b.totalReplies - a.totalReplies)
+        .slice(0, 5);
+
+      const weeklyTrend = Object.keys(activitiesByWeek)
+        .sort()
+        .slice(-8)
+        .map(week => ({
+          name: week.replace('W', ' Week '),
+          emailOpens: activitiesByWeek[week].emailOpens,
+          emailClicks: activitiesByWeek[week].emailClicks,
+          linkedInVisits: activitiesByWeek[week].linkedInVisits,
+          linkedInConnects: activitiesByWeek[week].linkedInConnects,
+          replies: activitiesByWeek[week].replies,
+        }));
+
+      const metrics = sortMetrics([
+        {
+          title: 'Active Campaigns',
+          value: formatNumber(activeCampaigns.length),
+          comparisonText: '→ Same',
+          icon: MailIcon,
+        },
+        {
+          title: 'Total Engagements',
+          value: formatNumber(currentMetrics.totalEngagements),
+          comparisonText: formatComparison(currentMetrics.totalEngagements, previousMetrics.totalEngagements),
+          icon: MailIcon,
+        },
+        {
+          title: 'Email Opens',
+          value: `${formatNumber(currentMetrics.email.opens)} (${currentMetrics.email.openRate.toFixed(1)}%)`,
+          comparisonText: formatComparison(currentMetrics.email.opens, previousMetrics.email.opens),
+          icon: MailIcon,
+        },
+        {
+          title: 'LinkedIn Connections',
+          value: `${formatNumber(currentMetrics.linkedin.connectionsAccepted)} accepted`,
+          comparisonText: formatComparison(currentMetrics.linkedin.connectionsAccepted, previousMetrics.linkedin.connectionsAccepted),
+          icon: MailIcon,
+        },
+        {
+          title: 'Positive Replies',
+          value: formatNumber(currentMetrics.totalPositive),
+          comparisonText: formatComparison(currentMetrics.totalPositive, previousMetrics.totalPositive),
+          icon: MailIcon,
+        },
+        {
+          title: 'Reply Rate',
+          value: `${currentMetrics.overallReplyRate.toFixed(1)}%`,
+          comparisonText: formatComparison(currentMetrics.overallReplyRate, previousMetrics.overallReplyRate, true),
+          icon: MailIcon,
+        },
+        {
+          title: 'Click Rate',
+          value: `${currentMetrics.email.clickRate.toFixed(1)}%`,
+          comparisonText: formatComparison(currentMetrics.email.clickRate, previousMetrics.email.clickRate, true),
+          icon: MailIcon,
+        },
+      ]);
+
+      const funnelData = [
+        {
+          name: 'Leads Contacted',
+          value: currentMetrics.totalContacted,
+          percentage: 100,
+        },
+        {
+          name: 'Email Sent',
+          value: currentMetrics.email.sent,
+          percentage: currentMetrics.totalContacted > 0 ? calculatePercentage(currentMetrics.email.sent, currentMetrics.totalContacted) : 0,
+        },
+        {
+          name: 'LinkedIn Visited',
+          value: currentMetrics.linkedin.visited,
+          percentage: currentMetrics.totalContacted > 0 ? calculatePercentage(currentMetrics.linkedin.visited, currentMetrics.totalContacted) : 0,
+        },
+        {
+          name: 'Email Opened',
+          value: currentMetrics.email.opens,
+          percentage: currentMetrics.email.sent > 0 ? calculatePercentage(currentMetrics.email.opens, currentMetrics.email.sent) : 0,
+        },
+        {
+          name: 'Email Clicked',
+          value: currentMetrics.email.clicks,
+          percentage: currentMetrics.email.opens > 0 ? calculatePercentage(currentMetrics.email.clicks, currentMetrics.email.opens) : 0,
+        },
+        {
+          name: 'Connection Sent',
+          value: currentMetrics.linkedin.invitesSent,
+          percentage: currentMetrics.linkedin.visited > 0 ? calculatePercentage(currentMetrics.linkedin.invitesSent, currentMetrics.linkedin.visited) : 0,
+        },
+        {
+          name: 'Total Replies',
+          value: currentMetrics.totalReplies,
+          percentage: currentMetrics.totalContacted > 0 ? calculatePercentage(currentMetrics.totalReplies, currentMetrics.totalContacted) : 0,
+        },
+        {
+          name: 'Positive',
+          value: currentMetrics.totalPositive,
+          percentage: currentMetrics.totalReplies > 0 ? calculatePercentage(currentMetrics.totalPositive, currentMetrics.totalReplies) : 0,
+        },
+      ];
+
+      const channelComparison = [
+        {
+          name: 'Engagement Rate',
+          email: currentMetrics.email.openRate,
+          linkedin: currentMetrics.linkedin.connectionRate,
+        },
+        {
+          name: 'Reply Rate',
+          email: currentMetrics.email.replyRate,
+          linkedin: currentMetrics.linkedin.replyRate,
+        },
+        {
+          name: 'Positive Rate',
+          email: currentMetrics.email.replies > 0 ? calculatePercentage(currentMetrics.email.positive, currentMetrics.email.replies) : 0,
+          linkedin: currentMetrics.linkedin.replies > 0 ? calculatePercentage(currentMetrics.linkedin.positive, currentMetrics.linkedin.replies) : 0,
+        },
+      ];
+
+      const topCampaigns = campaignPerformance.map(c => ({
+        name: c.name.length > 40 ? c.name.substring(0, 40) + '...' : c.name,
+        value: c.totalReplies,
+      }));
+
+      const contacted = currentMetrics.totalContacted;
+      const opened = currentMetrics.email.opens;
+      const clickedOrAccepted = currentMetrics.email.clicks + currentMetrics.linkedin.connectionsAccepted;
+      const replied = currentMetrics.totalReplies;
+      const interested = currentMetrics.totalPositive;
+
+      const leadFunnel = [
+        {
+          name: 'Contacted',
+          value: contacted,
+          percentage: contacted > 0 ? 100 : 0,
+        },
+        {
+          name: 'Opened',
+          value: opened,
+          percentage: contacted > 0 ? calculatePercentage(opened, contacted) : 0,
+        },
+        {
+          name: 'Clicked or Accepted invitation',
+          value: clickedOrAccepted,
+          percentage: contacted > 0 ? calculatePercentage(clickedOrAccepted, contacted) : 0,
+        },
+        {
+          name: 'Replied',
+          value: replied,
+          percentage: contacted > 0 ? calculatePercentage(replied, contacted) : 0,
+        },
+        {
+          name: 'Interested',
+          value: interested,
+          percentage: contacted > 0 ? calculatePercentage(interested, contacted) : 0,
+        },
+      ];
 
       clearTimeout(timeoutId);
 
-      // Aggregate activities by type and date
-      const activitiesByType: Record<string, Activity[]> = {};
-      const campaignActivities: Record<string, Activity[]> = {};
-      const activitiesByDate: Record<string, {
-        sent: number;
-        opened: number;
-        clicked: number;
-        replied: number;
-        bounced: number;
-        unsubscribed: number;
-      }> = {};
-      
-      allActivities.forEach(activity => {
-        // Group by type
-        if (!activitiesByType[activity.type]) {
-          activitiesByType[activity.type] = [];
-        }
-        activitiesByType[activity.type].push(activity);
-
-        // Group by campaign
-        if (activity.campaignId) {
-          if (!campaignActivities[activity.campaignId]) {
-            campaignActivities[activity.campaignId] = [];
-          }
-          campaignActivities[activity.campaignId].push(activity);
-        }
-
-        // Group by date for timeline
-        if (activity.createdAt) {
-          const dateKey = new Date(activity.createdAt).toISOString().split('T')[0]; // YYYY-MM-DD
-          if (!activitiesByDate[dateKey]) {
-            activitiesByDate[dateKey] = {
-              sent: 0,
-              opened: 0,
-              clicked: 0,
-              replied: 0,
-              bounced: 0,
-              unsubscribed: 0,
-            };
-          }
-          
-          // Count activity types by date - handle both plural (emailsSent) and singular (emailSent) forms
-          switch (activity.type) {
-            case 'emailsSent':
-            case 'emailSent':
-              activitiesByDate[dateKey].sent++;
-              break;
-            case 'emailsOpened':
-            case 'emailOpened':
-              activitiesByDate[dateKey].opened++;
-              break;
-            case 'emailsClicked':
-            case 'emailClicked':
-              activitiesByDate[dateKey].clicked++;
-              break;
-            case 'emailsReplied':
-            case 'emailReplied':
-              activitiesByDate[dateKey].replied++;
-              break;
-            case 'emailsBounced':
-            case 'emailBounced':
-              activitiesByDate[dateKey].bounced++;
-              break;
-            case 'apiUnsubscribed':
-            case 'unsubscribed':
-              activitiesByDate[dateKey].unsubscribed++;
-              break;
-          }
-        }
-      });
-
-      // Calculate totals - Lemlist uses plural forms (emailsSent, emailsOpened, etc.)
-      // Note: clicks and replies may not be present if campaigns don't have link tracking enabled
-      // or if no replies have been received yet
-      const emailsSent = activitiesByType['emailsSent']?.length || activitiesByType['emailSent']?.length || 0;
-      const emailsOpened = activitiesByType['emailsOpened']?.length || activitiesByType['emailOpened']?.length || 0;
-      
-      // Click tracking - may use emailsClicked, emailClicked, or linkClicked depending on API version
-      const emailsClicked = activitiesByType['emailsClicked']?.length || 
-                           activitiesByType['emailClicked']?.length || 
-                           activitiesByType['linkClicked']?.length || 0;
-      
-      // Reply tracking - may use emailsReplied, emailReplied, or replyReceived
-      const emailsReplied = activitiesByType['emailsReplied']?.length || 
-                           activitiesByType['emailReplied']?.length || 
-                           activitiesByType['replyReceived']?.length || 0;
-      
-      const emailsBounced = activitiesByType['emailsBounced']?.length || activitiesByType['emailBounced']?.length || 0;
-      const unsubscribed = activitiesByType['apiUnsubscribed']?.length || 
-                          activitiesByType['unsubscribed']?.length || 0;
-      const tasksCreated = activitiesByType['taskCreated']?.length || 0;
-      const tasksCompleted = activitiesByType['taskCompleted']?.length || 0;
-      
-      // LinkedIn activities (Lemlist also tracks LinkedIn outreach)
-      const linkedinVisits = activitiesByType['linkedinVisitDone']?.length || 0;
-      const linkedinInvites = activitiesByType['linkedinInviteDone']?.length || 0;
-      const linkedinAccepted = activitiesByType['linkedinInviteAccepted']?.length || 0;
-      
-      // Interested leads tracking
-      const interestedLeads = activitiesByType['apiInterested']?.length || 0;
-      const notInterestedLeads = activitiesByType['apiNotInterested']?.length || 0;
-
-      // Calculate rates
-      const emailsDelivered = emailsSent - emailsBounced;
-      const deliveryRate = emailsSent > 0 
-        ? calculatePercentage(emailsDelivered, emailsSent)
-        : 0;
-      const openRate = emailsDelivered > 0 
-        ? calculatePercentage(emailsOpened, emailsDelivered)
-        : (emailsSent > 0 ? calculatePercentage(emailsOpened, emailsSent) : 0);
-      
-      // Click and Reply rates - only calculate if we have data, otherwise show as N/A
-      // Note: Click tracking may require link tracking to be enabled in campaigns
-      const clickRate = emailsClicked > 0 && emailsDelivered > 0
-        ? calculatePercentage(emailsClicked, emailsDelivered)
-        : (emailsClicked > 0 && emailsSent > 0 
-            ? calculatePercentage(emailsClicked, emailsSent)
-            : null); // null indicates no clicks detected
-      
-      // Reply rate - may be 0 if no replies received yet
-      const replyRate = emailsReplied > 0 && emailsDelivered > 0
-        ? calculatePercentage(emailsReplied, emailsDelivered)
-        : (emailsReplied > 0 && emailsSent > 0
-            ? calculatePercentage(emailsReplied, emailsSent)
-            : 0); // 0 means no replies, which is valid data
-      const bounceRate = emailsSent > 0 
-        ? calculatePercentage(emailsBounced, emailsSent)
-        : 0;
-      const unsubscribeRate = emailsSent > 0
-        ? calculatePercentage(unsubscribed, emailsSent)
-        : 0;
-      const taskCompletionRate = tasksCreated > 0
-        ? calculatePercentage(tasksCompleted, tasksCreated)
-        : 0;
-
-      // Calculate campaign-level metrics - handle both plural and singular forms
-      const campaignPerformanceData = campaigns.map(campaign => {
-        const campaignActivityList = campaignActivities[campaign._id] || [];
-        const campaignSent = campaignActivityList.filter(a => a.type === 'emailsSent' || a.type === 'emailSent').length;
-        const campaignOpened = campaignActivityList.filter(a => a.type === 'emailsOpened' || a.type === 'emailOpened').length;
-        const campaignClicked = campaignActivityList.filter(a => a.type === 'emailsClicked' || a.type === 'emailClicked').length;
-        const campaignReplied = campaignActivityList.filter(a => a.type === 'emailsReplied' || a.type === 'emailReplied').length;
-        
-        const campaignDelivered = campaignSent - campaignActivityList.filter(a => a.type === 'emailsBounced' || a.type === 'emailBounced').length;
-        const campaignOpenRate = campaignDelivered > 0 
-          ? calculatePercentage(campaignOpened, campaignDelivered)
-          : calculatePercentage(campaignOpened, campaignSent);
-        
-        return {
-          name: campaign.name.length > 30 ? campaign.name.substring(0, 30) + '...' : campaign.name,
-          emailsSent: campaignSent,
-          openRate: campaignOpenRate,
-          clickRate: campaignDelivered > 0 
-            ? calculatePercentage(campaignClicked, campaignDelivered)
-            : calculatePercentage(campaignClicked, campaignSent),
-          replyRate: campaignDelivered > 0
-            ? calculatePercentage(campaignReplied, campaignDelivered)
-            : calculatePercentage(campaignReplied, campaignSent),
-        };
-      }).filter(c => c.emailsSent > 0);
-
-      const activeCampaigns = campaigns.filter(c => 
-        c.status === 'active' || c.status === 'running'
-      ).length;
-
-      // Build activity timeline data (last 30 days or available data)
-      const timelineData = Object.keys(activitiesByDate)
-        .sort()
-        .slice(-30) // Last 30 days
-        .map(date => ({
-          name: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          emailsSent: activitiesByDate[date].sent,
-          emailsOpened: activitiesByDate[date].opened,
-          emailsClicked: activitiesByDate[date].clicked,
-          emailsReplied: activitiesByDate[date].replied,
-          openRate: activitiesByDate[date].sent > 0 
-            ? calculatePercentage(activitiesByDate[date].opened, activitiesByDate[date].sent)
-            : 0,
-        }));
-
-      // Organize metrics into sections: Email, LinkedIn, Campaigns
-      const emailMetrics = [
-        {
-          title: 'Emails Sent',
-          value: formatNumber(emailsSent),
-          comparisonText: `${campaigns.length} ${campaigns.length === 1 ? 'campaign' : 'campaigns'}`,
-        },
-        {
-          title: 'Open Rate',
-          value: emailsSent > 0 ? `${openRate.toFixed(1)}%` : '0%',
-          comparisonText: `${formatNumber(emailsOpened)} opens`,
-        },
-        {
-          title: 'Click Rate',
-          value: clickRate !== null 
-            ? `${clickRate.toFixed(1)}%` 
-            : (emailsSent > 0 ? 'No clicks' : 'N/A'),
-          comparisonText: emailsClicked > 0 
-            ? `${formatNumber(emailsClicked)} clicks`
-            : 'No data',
-        },
-        {
-          title: 'Reply Rate',
-          value: emailsReplied > 0 ? `${replyRate.toFixed(1)}%` : '0%',
-          comparisonText: emailsReplied > 0 
-            ? `${formatNumber(emailsReplied)} replies`
-            : 'No replies yet',
-        },
-      ];
-
-      const linkedinMetrics = [];
-      if (linkedinVisits > 0) {
-        linkedinMetrics.push({
-          title: 'LinkedIn Visits',
-          value: formatNumber(linkedinVisits),
-          comparisonText: 'Profile visits',
-        });
-      }
-      if (linkedinInvites > 0) {
-        linkedinMetrics.push({
-          title: 'LinkedIn Invites',
-          value: formatNumber(linkedinInvites),
-          comparisonText: `${linkedinAccepted > 0 ? `${linkedinAccepted} accepted` : 'Connection requests'}`,
-        });
-      }
-      if (linkedinAccepted > 0) {
-        linkedinMetrics.push({
-          title: 'LinkedIn Accepted',
-          value: formatNumber(linkedinAccepted),
-          comparisonText: 'Connections accepted',
-        });
-      }
-
-      // Campaign health metrics (renamed from campaignMetrics to avoid cache conflicts)
-      const campaignHealthMetrics = [
-        {
-          title: 'Total Campaigns',
-          value: formatNumber(campaigns.length),
-          comparisonText: `${activeCampaigns} active`,
-        },
-        {
-          title: 'Delivery Rate',
-          value: `${deliveryRate.toFixed(1)}%`,
-          comparisonText: `${formatNumber(emailsDelivered)} delivered`,
-        },
-        {
-          title: 'Bounce Rate',
-          value: `${bounceRate.toFixed(1)}%`,
-          comparisonText: `${formatNumber(emailsBounced)} bounced`,
-        },
-        {
-          title: 'Unsubscribe Rate',
-          value: `${unsubscribeRate.toFixed(1)}%`,
-          comparisonText: `${formatNumber(unsubscribed)} unsubscribed`,
-        },
-      ];
-
-      // Add interested leads to campaign metrics if available
-      if (interestedLeads > 0) {
-        campaignHealthMetrics.push({
-          title: 'Interested Leads',
-          value: formatNumber(interestedLeads),
-          comparisonText: notInterestedLeads > 0 
-            ? `${notInterestedLeads} not interested`
-            : 'Marked as interested',
-        });
-      }
-
-      // Legacy metrics array for backward compatibility (flattened)
-      const metrics = [...emailMetrics, ...linkedinMetrics, ...campaignHealthMetrics];
-
-      const dashboardData = {
-        metrics, // Keep for backward compatibility
-        metricSections: {
-          email: {
-            title: 'Email Metrics',
-            metrics: emailMetrics,
-          },
-          linkedin: {
-            title: 'LinkedIn Metrics',
-            metrics: linkedinMetrics,
-          },
-          campaigns: {
-            title: 'Campaign Metrics',
-            metrics: campaignHealthMetrics,
-          },
-        },
-        openRateGauge: {
-          title: 'Open Rate',
-          percentage: openRate,
-        },
-        clickRateGauge: {
-          title: 'Click Rate',
-          percentage: clickRate !== null ? clickRate : 0, // Show 0 if no clicks detected
-        },
-        replyRateGauge: {
-          title: 'Reply Rate',
-          percentage: replyRate,
-        },
-        campaignPerformance: {
-          title: 'Campaign Performance Comparison',
-          description: 'Compare engagement rates across all campaigns to identify top performers',
-          data: campaignPerformanceData.slice(0, 10).map(c => ({ 
-            name: c.name, 
-            value: c.openRate,
-            clickRate: c.clickRate,
-            replyRate: c.replyRate,
-            emailsSent: c.emailsSent,
-          })),
-          valueLabel: 'Open Rate (%)',
-          endpoint: 'GET /api/dashboard/lemlist (aggregated from /api/lemlist/activities)',
-        },
-        activityTimeline: {
-          title: 'Activity Timeline',
-          description: 'Daily email activity and engagement rates over time',
-          data: timelineData,
-          valueLabel: 'Count',
-        },
-        additionalMetrics: {
-          title: 'Additional Health Metrics',
-          data: [
-            { label: 'Active Campaigns', value: formatNumber(activeCampaigns) },
-            ...(tasksCreated > 0 ? [{ label: 'Task Completion', value: `${taskCompletionRate.toFixed(1)}%`, percentage: taskCompletionRate }] : []),
-          ],
-        },
-      };
-
       return NextResponse.json(
-        { data: dashboardData },
+        {
+          data: {
+            metrics,
+            leadFunnel: {
+              title: 'Lead Funnel Overview',
+              description: 'Complete journey from contact to interested lead',
+              data: leadFunnel,
+            },
+            multichannelFunnel: {
+              title: 'Multichannel Engagement Funnel',
+              description: 'Shows the full multichannel journey from contact to positive reply',
+              data: funnelData,
+            },
+            channelComparison: {
+              title: 'Channel Performance Comparison',
+              description: 'Side-by-side comparison of email vs LinkedIn performance',
+              data: channelComparison,
+            },
+            campaignLeaderboard: {
+              title: 'Campaign Performance Leaderboard',
+              description: 'Top campaigns by total replies (Email + LinkedIn)',
+              data: topCampaigns,
+              valueLabel: 'Replies',
+            },
+            weeklyTrend: {
+              title: 'Weekly Activity Trend',
+              description: 'Email and LinkedIn activities over time',
+              data: weeklyTrend,
+            },
+          },
+        },
         {
           headers: {
             'Cache-Control': `public, s-maxage=${CACHE_REVALIDATE}, stale-while-revalidate=60`,
@@ -605,30 +614,16 @@ export async function GET(request: Request) {
       clearTimeout(timeoutId);
       
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        return NextResponse.json(
-          { error: 'Request timeout' },
-          { status: 504 }
-        );
+        return NextResponse.json({ error: 'Request timeout' }, { status: 504 });
       }
       
       throw fetchError;
     }
   } catch (error) {
-    console.error('[Lemlist Route] Error fetching dashboard data:', error);
-    console.error('[Lemlist Route] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-    console.error('[Lemlist Route] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : undefined;
-    
+    console.error('[Lemlist Route] Error:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to fetch Lemlist dashboard data',
-        message: errorMessage,
-        ...(process.env.NODE_ENV === 'development' && { stack: errorStack }),
-      },
+      { error: 'Failed to fetch Lemlist dashboard data' },
       { status: 500 }
     );
   }
 }
-

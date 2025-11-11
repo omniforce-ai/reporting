@@ -1,6 +1,6 @@
 import { Tenant } from '@prisma/client';
 
-export type FeatureId = 'smartlead' | 'lemlist' | 'sales' | 'support' | 'documents';
+export type FeatureId = 'overview' | 'smartlead' | 'lemlist' | 'sales' | 'support' | 'documents' | 'fonts';
 
 // Simplified structure: just an array of enabled feature IDs
 // API keys stored separately in tenant.apiKeys JSONB field
@@ -13,7 +13,7 @@ const DEFAULT_FEATURES: TenantFeatures = {
 };
 
 export function getTenantFeatures(tenant: Tenant): TenantFeatures {
-  const validFeatureIds: FeatureId[] = ['smartlead', 'lemlist', 'sales', 'support', 'documents'];
+  const validFeatureIds: FeatureId[] = ['overview', 'smartlead', 'lemlist', 'sales', 'support', 'documents', 'fonts'];
   let enabledFeatures: FeatureId[] = [];
   
   // If tenant has features configured, use them

@@ -1,5 +1,5 @@
 import type { FeatureId } from '@/lib/utils/features';
-import { InboxIcon, AnalyticsIcon, SupportIcon, DocumentTextIcon } from '@/components/icons';
+import { InboxIcon, AnalyticsIcon, SupportIcon, DocumentTextIcon, FontIcon } from '@/components/icons';
 
 export interface FeatureDefinition {
   id: FeatureId;
@@ -11,6 +11,13 @@ export interface FeatureDefinition {
 
 // Central registry of all available features/tabs
 export const AVAILABLE_FEATURES: Record<FeatureId, FeatureDefinition> = {
+  overview: {
+    id: 'overview',
+    name: 'Overview',
+    icon: AnalyticsIcon,
+    description: 'Executive overview with key metrics from all features',
+    requiresApiKey: false,
+  },
   smartlead: {
     id: 'smartlead',
     name: 'Smartlead',
@@ -44,6 +51,13 @@ export const AVAILABLE_FEATURES: Record<FeatureId, FeatureDefinition> = {
     name: 'Document Processing',
     icon: DocumentTextIcon,
     description: 'Document extraction and processing',
+    requiresApiKey: false,
+  },
+  fonts: {
+    id: 'fonts',
+    name: 'Font Preview',
+    icon: FontIcon,
+    description: 'Preview and evaluate fonts for the application',
     requiresApiKey: false,
   },
 };

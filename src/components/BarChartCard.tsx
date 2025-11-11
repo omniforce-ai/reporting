@@ -37,13 +37,13 @@ const BarChartCard: React.FC<BarChartCardProps> = ({
   } satisfies ChartConfig;
 
   return (
-    <Card className="@container/card">
+    <Card className="@container/card flex flex-col h-full">
       <CardHeader className="relative">
         <CardTitle>{title}</CardTitle>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
-      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-        <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
+      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
+        <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
           <BarChart data={data}>
             <CartesianGrid vertical={false} />
             <XAxis 

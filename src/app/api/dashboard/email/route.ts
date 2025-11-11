@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentTenant } from '@/lib/utils/tenant';
+import { sortMetrics } from '@/lib/utils/metric-order';
 
 const SMARTLEAD_BASE_URL = 'https://server.smartlead.ai/api/v1';
 const REQUEST_TIMEOUT = 20000;
@@ -63,6 +64,48 @@ function formatNumber(num: number): string {
 function calculatePercentage(value: number, total: number): number {
   if (total === 0) return 0;
   return Math.round((value / total) * 100 * 10) / 10;
+}
+
+function calculatePreviousPeriod(startDate: string, endDate: string): { start: string; end: string } {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  
+  const prevEnd = new Date(start);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - daysDiff);
+  
+  return {
+    start: prevStart.toISOString().split('T')[0],
+    end: prevEnd.toISOString().split('T')[0]
+  };
+}
+
+function formatComparison(current: number, previous: number, isPercentage: boolean = false): string {
+  if (previous === 0) {
+    if (current === 0) return '→ Same';
+    return `↑ +${current}${isPercentage ? '%' : ''} (new)`;
+  }
+  
+  const change = current - previous;
+  const changePercent = ((change / previous) * 100);
+  
+  if (Math.abs(change) < 0.01 && !isPercentage) return '→ Same';
+  if (Math.abs(changePercent) < 0.1 && isPercentage) return '→ Same';
+  
+  const sign = change >= 0 ? '↑' : '↓';
+  const absChange = Math.abs(change);
+  const absChangePercent = Math.abs(changePercent);
+  
+  if (isPercentage) {
+    return `${sign} ${absChangePercent.toFixed(1)}%`;
+  } else {
+    const percentStr = changePercent >= 0 
+      ? `+${changePercent.toFixed(0)}%` 
+      : `${changePercent.toFixed(0)}%`;
+    return `${sign} ${absChange} (${percentStr})`;
+  }
 }
 
 function extractAnalyticsValue(analytics: CampaignAnalytics | any, ...keys: string[]): number {
@@ -501,17 +544,12 @@ export async function GET(request: Request) {
         return NextResponse.json({
           data: {
             metrics: [
-              { title: 'Emails Sent', value: '0', comparisonText: '0 Leads (Active + Inactive)' },
-              { title: 'Opened', value: '0', comparisonText: '0.00% Open Rate' },
-              { title: 'Replied', value: '0', comparisonText: '0.00% Reply Rate' },
-              { title: 'Positive Reply', value: '0', comparisonText: '0.00% Positive Reply Rate' },
-              { title: 'Bounced', value: '0', comparisonText: '0.00% Bounce Rate' },
+              { title: 'Emails Sent', value: '0' },
+              { title: 'Open Rate', value: '0.00%' },
+              { title: 'Reply Rate', value: '0.00%' },
+              { title: 'Positive Reply', value: '0' },
+              { title: 'Number of Campaigns', value: '0' },
             ],
-            engagementMetrics: {
-              title: 'Email Engagement Metrics',
-              description: 'The data is displayed in Etc/GMT(UTC)',
-              data: [],
-            },
           },
         });
       }
@@ -529,6 +567,51 @@ export async function GET(request: Request) {
         startDate,
         endDate
       );
+
+      // Fetch previous period data for comparison if date range is provided
+      let previousPeriodTotals: typeof totals | null = null;
+      if (startDate && endDate) {
+        const previousPeriod = calculatePreviousPeriod(startDate, endDate);
+        console.log(`Fetching previous period data: ${previousPeriod.start} to ${previousPeriod.end}`);
+        
+        const previousAnalyticsResults = await batchFetchAnalytics(
+          campaigns,
+          smartleadApiKey,
+          controller.signal,
+          previousPeriod.start,
+          previousPeriod.end
+        );
+
+        previousPeriodTotals = previousAnalyticsResults.reduce(
+          (acc: typeof totals, analytics) => {
+            if (!analytics) return acc;
+            const metrics = getEmailMetrics(analytics);
+            acc.emailsSent += metrics.emailsSent;
+            acc.emailsOpened += metrics.emailsOpened;
+            acc.emailsClicked += metrics.emailsClicked;
+            acc.replies += metrics.replies;
+            acc.positiveReplies += metrics.positiveReplies;
+            acc.bounced += metrics.bounced;
+            acc.unsubscribed += metrics.unsubscribed;
+            acc.leads += metrics.leads;
+            acc.completed += metrics.completed;
+            acc.blocked += metrics.blocked;
+            return acc;
+          },
+          {
+            emailsSent: 0,
+            emailsOpened: 0,
+            emailsClicked: 0,
+            replies: 0,
+            positiveReplies: 0,
+            bounced: 0,
+            unsubscribed: 0,
+            leads: 0,
+            completed: 0,
+            blocked: 0,
+          }
+        );
+      }
 
       clearTimeout(timeoutId);
       
@@ -548,6 +631,7 @@ export async function GET(request: Request) {
             emailsSent: 0,
             openRate: 0,
             replyRate: 0,
+            status: campaign.status,
           };
         }
         const metrics = getEmailMetrics(analytics);
@@ -558,6 +642,7 @@ export async function GET(request: Request) {
           emailsSent: metrics.emailsSent,
           openRate,
           replyRate,
+          status: campaign.status,
         };
       }).filter(c => c.emailsSent > 0);
 
@@ -643,90 +728,177 @@ export async function GET(request: Request) {
       const completionRate = calculatePercentage(totals.completed, totals.leads);
       const blockedRate = calculatePercentage(totals.blocked, totals.leads);
       
-      // Calculate total leads (Active + Inactive)
-      const totalLeads = totals.leads || (totals.emailsSent > 0 ? totals.emailsSent : 0);
+      // Calculate previous period rates for comparison
+      let previousOpenRate = 0;
+      let previousReplyRate = 0;
+      if (previousPeriodTotals) {
+        const previousEmailsDelivered = previousPeriodTotals.emailsSent - previousPeriodTotals.bounced;
+        previousOpenRate = previousEmailsDelivered > 0 
+          ? calculatePercentage(previousPeriodTotals.emailsOpened, previousEmailsDelivered)
+          : calculatePercentage(previousPeriodTotals.emailsOpened, previousPeriodTotals.emailsSent);
+        previousReplyRate = previousEmailsDelivered > 0
+          ? calculatePercentage(previousPeriodTotals.replies, previousEmailsDelivered)
+          : calculatePercentage(previousPeriodTotals.replies, previousPeriodTotals.emailsSent);
+      }
+
+      // Count active campaigns
+      const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE').length;
+      // For active campaigns, we compare current vs previous period
+      // Note: Campaign status doesn't change by date range, but campaigns can be created/deleted
+      // Since we can't easily determine historical campaign status from the API,
+      // we use the current count for comparison (formatComparison will show "→ Same" if equal)
+      const previousActiveCampaigns = activeCampaigns;
+
+      // Calculate TOP 5 CARDS with comparisons
+      const emailsSent = totals.emailsSent;
+      const previousEmailsSent = previousPeriodTotals?.emailsSent || 0;
       
-      // Generate time-series data for the engagement metrics graph
-      // This should match the date range selected by the user
+      const conversationsStarted = totals.replies;
+      const previousConversationsStarted = previousPeriodTotals?.replies || 0;
+      
+      const positiveReplies = positiveReplyCount;
+      const previousPositiveReplies = previousPeriodTotals?.positiveReplies || 0;
+
+      // Generate reply trend data (weekly)
       const start = startDate ? new Date(startDate) : new Date();
-      start.setDate(start.getDate() - 14); // Default to last 14 days if no range specified
+      start.setDate(start.getDate() - 14);
       const end = endDate ? new Date(endDate) : new Date();
-      
       const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-      const timeSeriesData = Array.from({ length: Math.max(1, daysDiff) }, (_, i) => {
-        const date = new Date(start);
-        date.setDate(start.getDate() + i);
-        const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-        
-        // Note: This distributes totals evenly across days as a simplified visualization
-        // For accurate daily breakdown, Smartlead API would need to be called per day
-        // or use a daily analytics endpoint if available
-        const dayFactor = 1 / Math.max(1, daysDiff);
+      
+      // Group replies by week for trend chart
+      const replyTrendData: Array<{ name: string; replies: number }> = [];
+      if (startDate && endDate) {
+        const weekStart = new Date(start);
+        while (weekStart <= end) {
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 6);
+          if (weekEnd > end) weekEnd.setTime(end.getTime());
+          
+          // For now, distribute replies evenly across weeks (simplified)
+          // In production, you'd fetch daily analytics and group by week
+          const weekReplies = Math.round(totals.replies / Math.ceil(daysDiff / 7));
+          replyTrendData.push({
+            name: weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            replies: weekReplies,
+          });
+          
+          weekStart.setDate(weekStart.getDate() + 7);
+        }
+      } else {
+        // Default: last 4 weeks
+        for (let i = 3; i >= 0; i--) {
+          const weekDate = new Date();
+          weekDate.setDate(weekDate.getDate() - (i * 7));
+          replyTrendData.push({
+            name: weekDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            replies: Math.round(totals.replies / 4),
+          });
+        }
+      }
+
+      // Campaign Performance Leaderboard (sorted by replies)
+      const campaignLeaderboard = campaigns.map((campaign, index) => {
+        const analytics = analyticsResults[index];
+        if (!analytics) {
+          return {
+            name: campaign.name,
+            replies: 0,
+            openRate: 0,
+            replyRate: 0,
+          };
+        }
+        const metrics = getEmailMetrics(analytics);
+        const campaignOpenRate = calculatePercentage(metrics.emailsOpened, metrics.emailsSent);
+        const campaignReplyRate = calculatePercentage(metrics.replies, metrics.emailsSent);
         return {
-          name: dateStr,
-          'Email Sent': Math.round(totals.emailsSent * dayFactor),
-          'Email Opened': Math.round(totals.emailsOpened * dayFactor),
-          'Replied': Math.round(totals.replies * dayFactor),
-          'Positive Replied': Math.round(positiveReplyCount * dayFactor),
-          'Bounced': Math.round(totals.bounced * dayFactor),
-          'Unsubscribed': Math.round(totals.unsubscribed * dayFactor),
+          name: campaign.name,
+          replies: metrics.replies,
+          openRate: campaignOpenRate,
+          replyRate: campaignReplyRate,
         };
-      });
+      })
+      .filter(c => c.replies > 0)
+      .sort((a, b) => b.replies - a.replies)
+      .slice(0, 10);
 
       const dashboardData = {
-        metrics: [
+        metrics: sortMetrics([
           {
-            title: 'Emails Sent',
-            value: formatNumber(totals.emailsSent),
-            comparisonText: `${formatNumber(totalLeads)} Leads (Active + Inactive)`,
+            title: 'Active Campaigns',
+            value: formatNumber(activeCampaigns),
+            comparisonText: previousPeriodTotals
+              ? formatComparison(activeCampaigns, previousActiveCampaigns)
+              : '→ Same',
           },
           {
-            title: 'Opened',
-            value: formatNumber(totals.emailsOpened),
-            comparisonText: `${openRate.toFixed(2)}% Open Rate`,
+            title: 'Total Emails Sent',
+            value: formatNumber(emailsSent),
+            comparisonText: previousPeriodTotals 
+              ? formatComparison(emailsSent, previousEmailsSent)
+              : '→ Same',
           },
           {
-            title: 'Replied',
-            value: formatNumber(totals.replies),
-            comparisonText: `${replyRate.toFixed(2)}% Reply Rate`,
+            title: 'Conversations Started',
+            value: formatNumber(conversationsStarted),
+            comparisonText: previousPeriodTotals 
+              ? formatComparison(conversationsStarted, previousConversationsStarted)
+              : '→ Same',
           },
           {
-            title: 'Positive Reply',
-            value: formatNumber(positiveReplyCount),
-            comparisonText: `${positiveReplyRate.toFixed(2)}% Positive Reply Rate`,
+            title: 'Positive Replies',
+            value: formatNumber(positiveReplies),
+            comparisonText: previousPeriodTotals 
+              ? formatComparison(positiveReplies, previousPositiveReplies)
+              : '→ Same',
           },
           {
-            title: 'Bounced',
-            value: formatNumber(totals.bounced),
-            comparisonText: `${bounceRate.toFixed(2)}% Bounce Rate`,
+            title: 'Reply Rate',
+            value: `${replyRate.toFixed(2)}%`,
+            comparisonText: previousPeriodTotals 
+              ? formatComparison(replyRate, previousReplyRate, true)
+              : '→ Same',
           },
           {
-            title: 'Number of Campaigns',
-            value: formatNumber(campaigns.length),
-            comparisonText: `${campaigns.filter(c => c.status === 'ACTIVE' || c.status === 'active' || c.status === 'running').length} Active`,
+            title: 'Open Rate',
+            value: `${openRate.toFixed(2)}%`,
+            comparisonText: previousPeriodTotals 
+              ? formatComparison(openRate, previousOpenRate, true)
+              : '→ Same',
           },
-          {
-            title: 'Total Leads',
-            value: formatNumber(totals.leads),
-            comparisonText: `${formatNumber(totals.completed)} Completed (${completionRate.toFixed(1)}%)`,
-          },
-          {
-            title: 'Completed Leads',
-            value: formatNumber(totals.completed),
-            comparisonText: `${completionRate.toFixed(1)}% Completion Rate`,
-          },
-          {
-            title: 'Blocked/Escalated',
-            value: formatNumber(totals.blocked),
-            comparisonText: `${blockedRate.toFixed(1)}% Blocked Rate`,
-          },
-        ],
-        // Time-series data for the engagement metrics graph
-        engagementMetrics: {
-          title: 'Email Engagement Metrics',
-          description: 'The data is displayed in Etc/GMT(UTC)',
-          data: timeSeriesData,
+        ]),
+        conversationFunnel: {
+          title: 'Conversation Pipeline Funnel',
+          description: 'Shows lead generation effectiveness - Leads Contacted → Opened Email → Replied → Positive Reply',
+          data: [
+            { name: 'Leads Contacted', value: totals.emailsSent, percentage: 100 },
+            { name: 'Opened Email', value: totals.emailsOpened, percentage: openRate },
+            { name: 'Replied', value: totals.replies, percentage: replyRate },
+            { name: 'Positive Reply', value: positiveReplies, percentage: totals.replies > 0 ? calculatePercentage(positiveReplies, totals.replies) : 0 },
+          ],
+          endpoint: 'GET /api/dashboard/email',
         },
+        campaignLeaderboard: {
+          title: 'Campaign Performance Leaderboard',
+          description: 'Shows which campaigns drive most conversations',
+          data: campaignLeaderboard.map(c => ({ 
+            name: c.name, 
+            value: c.replies,
+            openRate: c.openRate,
+            replyRate: c.replyRate,
+          })),
+          valueLabel: 'Replies',
+          endpoint: 'GET /api/dashboard/email',
+        },
+        replyTrend: {
+          title: 'Reply Trend Over Time',
+          description: 'Shows conversation momentum - replies per week trend',
+          data: replyTrendData.map(item => ({
+            name: item.name,
+            avgScore: item.replies,
+          })),
+          endpoint: 'GET /api/dashboard/email',
+        },
+        // Keep legacy fields for backward compatibility
         engagementFunnel: {
           title: 'Email Engagement Funnel',
           description: 'Journey from delivery to conversion - Sent → Opened → Replied',
@@ -745,6 +917,7 @@ export async function GET(request: Request) {
           valueLabel: 'Open Rate (%)',
           endpoint: 'GET /api/dashboard/email (aggregated from /api/smartlead/campaigns/{id}/analytics)',
         },
+        campaigns: campaignMetrics.map(({ status, ...campaign }) => ({ ...campaign, status })),
       };
 
       return NextResponse.json(

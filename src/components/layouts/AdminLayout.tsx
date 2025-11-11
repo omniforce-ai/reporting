@@ -20,6 +20,7 @@ import {
   SidebarProvider,
 } from '@/components/ui/sidebar';
 import { NavUser } from '@/components/nav-user';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { SidebarGroup, SidebarGroupContent } from '@/components/ui/sidebar';
 import { SiteHeader } from '@/components/site-header';
 
@@ -82,6 +83,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
+          <ThemeToggle />
           {user && (
             <NavUser user={{
               name: user.fullName || 'Admin',
