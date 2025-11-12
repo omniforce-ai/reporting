@@ -102,8 +102,10 @@ export async function GET(request: Request) {
       
       const dateRange = startDate && endDate ? `&startDate=${startDate}&endDate=${endDate}` : '';
       
-      console.log(`[Summary API] Fetching data for features: ${emailFeatures.join(', ')}`);
-      console.log(`[Summary API] Base URL: ${baseUrl}`);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Summary API] Fetching data for features: ${emailFeatures.join(', ')}`);
+        console.log(`[Summary API] Base URL: ${baseUrl}`);
+      }
       
       const previousPeriod = startDate && endDate ? calculatePreviousPeriod(startDate, endDate) : null;
       const prevDateRange = previousPeriod ? `&startDate=${previousPeriod.start}&endDate=${previousPeriod.end}` : '';
@@ -129,10 +131,12 @@ export async function GET(request: Request) {
               return null;
             }
             const data = await res.json();
-            console.log(`[Summary API] Successfully fetched ${feature} current data:`, {
-              hasMetrics: !!(data.data?.metrics || data.metrics),
-              metricsCount: (data.data?.metrics || data.metrics || []).length,
-            });
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[Summary API] Successfully fetched ${feature} current data:`, {
+                hasMetrics: !!(data.data?.metrics || data.metrics),
+                metricsCount: (data.data?.metrics || data.metrics || []).length,
+              });
+            }
             return { feature, data: data.data || data, period: 'current' as const };
           }).catch(err => {
             if (err.name !== 'AbortError') {
@@ -342,7 +346,8 @@ export async function GET(request: Request) {
         } : null,
       };
 
-      console.log(`[Summary API] Returning aggregated data:`, {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Summary API] Returning aggregated data:`, {
         metricsCount: metrics.length,
         hasFunnel: !!dashboardData.conversationFunnel,
         hasLeaderboard: !!dashboardData.campaignLeaderboard,
@@ -352,7 +357,8 @@ export async function GET(request: Request) {
           emailsSent: aggregated.emailsSent,
           campaigns: aggregated.campaigns,
         },
-      });
+        });
+      }
 
       return NextResponse.json(
         { data: dashboardData },

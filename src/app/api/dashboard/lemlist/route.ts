@@ -180,7 +180,6 @@ async function fetchAllActivities(
       hasMore = false;
     } else {
       offset += limit;
-      await new Promise(resolve => setTimeout(resolve, 250));
     }
   }
 
@@ -468,10 +467,12 @@ export async function GET(request: Request) {
         fetchAllActivities(lemlistEmail, lemlistApiKey, controller.signal, previousPeriod.start, previousPeriod.end),
       ]);
 
-      console.log('[Lemlist Route] Activities fetched:', {
-        currentCount: currentActivities.length,
-        previousCount: previousActivities.length,
-      });
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Lemlist Route] Activities fetched:', {
+          currentCount: currentActivities.length,
+          previousCount: previousActivities.length,
+        });
+      }
 
       let currentMetrics: Metrics;
       let previousMetrics: Metrics;
@@ -479,11 +480,13 @@ export async function GET(request: Request) {
       try {
         currentMetrics = calculateMetrics(currentActivities);
         previousMetrics = calculateMetrics(previousActivities);
-        console.log('[Lemlist Route] Metrics calculated:', {
-          currentContacted: currentMetrics.totalContacted,
-          currentReplies: currentMetrics.totalReplies,
-          currentPositive: currentMetrics.totalPositive,
-        });
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Lemlist Route] Metrics calculated:', {
+            currentContacted: currentMetrics.totalContacted,
+            currentReplies: currentMetrics.totalReplies,
+            currentPositive: currentMetrics.totalPositive,
+          });
+        }
       } catch (metricsError) {
         console.error('[Lemlist Route] Error calculating metrics:', metricsError);
         throw new Error(`Failed to calculate metrics: ${metricsError instanceof Error ? metricsError.message : 'Unknown error'}`);
@@ -582,7 +585,7 @@ export async function GET(request: Request) {
       const metrics = sortMetrics([
         {
           title: 'Total Contacted',
-          value: `${formatNumber(currentMetrics.totalContacted)} leads`,
+          value: formatNumber(currentMetrics.totalContacted),
           comparisonText: formatComparison(currentMetrics.totalContacted, previousMetrics.totalContacted),
           icon: MailIcon,
         },

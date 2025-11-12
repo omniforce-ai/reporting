@@ -23,36 +23,13 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
     
     if (!clientSlug) return;
     
-    let isMounted = true;
-    const abortController = new AbortController();
-    
-    fetch(`/api/tenant/config?client=${clientSlug}`, {
-      signal: abortController.signal,
-    })
-      .then(async res => {
-        if (!res.ok) {
-          throw new Error(`Failed to fetch tenant config: ${res.status}`);
-        }
-        return res.json();
-      })
-      .then(data => {
-        if (!isMounted) return;
-        
-        if (data?.tenant?.name) {
-          setClientName(data.tenant.name);
-        } else if (data?.tenant?.subdomain) {
-          setClientName(data.tenant.subdomain);
-        }
-      })
-      .catch((err) => {
-        if (!isMounted || err.name === 'AbortError') return;
-        console.error('Error fetching tenant config:', err);
-      });
-    
-    return () => {
-      isMounted = false;
-      abortController.abort();
-    };
+    // Use subdomain as fallback name - dashboard page will fetch full config
+    // This avoids duplicate API calls. The dashboard page can update the name via context if needed.
+    const formattedName = clientSlug
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+    setClientName(formattedName);
   }, [params, pathname]);
 
   return (

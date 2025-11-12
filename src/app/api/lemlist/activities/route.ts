@@ -3,7 +3,6 @@ import { getCurrentTenant } from '@/lib/utils/tenant';
 
 const LEMLIST_BASE_URL = process.env.LEMLIST_BASE_URL || 'https://api.lemlist.com/api';
 const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '20000', 10);
-const MAX_CONCURRENT_REQUESTS = parseInt(process.env.MAX_CONCURRENT_REQUESTS || '5', 10);
 
 function createBasicAuth(email: string, apiKey: string): string {
   const credentials = Buffer.from(`${email}:${apiKey}`).toString('base64');
@@ -112,9 +111,6 @@ async function fetchAllActivities(
         hasMore = false;
       } else {
         offset += limit;
-        
-        // Small delay to avoid rate limits
-        await new Promise(resolve => setTimeout(resolve, 250));
       }
     }
   }

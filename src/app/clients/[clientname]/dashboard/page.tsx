@@ -192,11 +192,22 @@ export default function ClientDashboardPage() {
     };
   }, [isDatePickerOpen]);
 
-  // Get current client info and features
+  // Get current client info and features - fetch in parallel with dashboard data
   useEffect(() => {
+    if (!clientname) return;
+    
     let isMounted = true;
     const abortController = new AbortController();
     
+    // Use clientname as subdomain immediately to enable parallel fetching
+    const subdomain = clientname;
+    setClientInfo({
+      subdomain,
+      name: subdomain.charAt(0).toUpperCase() + subdomain.slice(1).replace(/-/g, ' '),
+      apiSource: null,
+    });
+    
+    // Fetch tenant config to get actual name and features
     fetch(`/api/tenant/config?client=${clientname}`, {
       signal: abortController.signal,
     })
@@ -316,14 +327,15 @@ export default function ClientDashboardPage() {
             if (!isMounted) return;
             
             const dashboardData = response.data || response;
-            console.log('[Dashboard] Overview data received:', {
-              hasData: !!dashboardData,
-              hasMetrics: !!(dashboardData?.metrics),
-              metricsCount: dashboardData?.metrics?.length || 0,
-              hasFunnel: !!dashboardData?.conversationFunnel,
-              hasLeaderboard: !!dashboardData?.campaignLeaderboard,
-              fullData: dashboardData,
-            });
+            if (process.env.NODE_ENV === 'development') {
+              console.log('[Dashboard] Overview data received:', {
+                hasData: !!dashboardData,
+                hasMetrics: !!(dashboardData?.metrics),
+                metricsCount: dashboardData?.metrics?.length || 0,
+                hasFunnel: !!dashboardData?.conversationFunnel,
+                hasLeaderboard: !!dashboardData?.campaignLeaderboard,
+              });
+            }
             setEmailData(dashboardData);
             setIsLoadingEmailData(false);
           })
@@ -414,16 +426,6 @@ export default function ClientDashboardPage() {
   let displayData = null;
   
   if (emailData) {
-    console.log('[Dashboard] Transforming emailData:', {
-      activeTabId,
-      hasEmailData: !!emailData,
-      emailDataKeys: Object.keys(emailData || {}),
-      executiveSummary: emailData.executiveSummary,
-      performanceFunnel: emailData.performanceFunnel,
-      channelBreakdown: emailData.channelBreakdown,
-      engagementQuality: emailData.engagementQuality,
-      metrics: emailData.metrics,
-    });
     const transformed: any = {
       metrics: (emailData.metrics || []).map((metric: any) => ({
         ...metric,
@@ -495,30 +497,20 @@ export default function ClientDashboardPage() {
     
     if (hasMetrics || hasCharts || (isLemlistTab && hasLemlistReport)) {
       displayData = transformed;
-      console.log('[Dashboard] Display data created:', {
-        hasMetrics,
-        hasCharts,
-        isLemlistTab,
-        hasLemlistReport,
-        metricsCount: transformed.metrics?.length || 0,
-        chartKeys: Object.keys(transformed).filter(k => k !== 'metrics'),
-        executiveSummary: transformed.executiveSummary,
-        performanceFunnel: transformed.performanceFunnel?.length,
-        channelBreakdown: !!transformed.channelBreakdown,
-        engagementQuality: transformed.engagementQuality,
-      });
     } else {
-      console.warn('[Dashboard] No display data - missing metrics and charts:', {
-        hasMetrics,
-        hasCharts,
-        isLemlistTab,
-        hasLemlistReport,
-        transformedKeys: Object.keys(transformed),
-        executiveSummary: transformed.executiveSummary,
-        performanceFunnel: transformed.performanceFunnel,
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[Dashboard] No display data - missing metrics and charts:', {
+          hasMetrics,
+          hasCharts,
+          isLemlistTab,
+          hasLemlistReport,
+          transformedKeys: Object.keys(transformed),
+          executiveSummary: transformed.executiveSummary,
+          performanceFunnel: transformed.performanceFunnel,
         channelBreakdown: transformed.channelBreakdown,
         engagementQuality: transformed.engagementQuality,
       });
+      }
     }
   }
 

@@ -4,7 +4,6 @@ import { sortMetrics } from '@/lib/utils/metric-order';
 
 const SMARTLEAD_BASE_URL = process.env.SMARTLEAD_BASE_URL || 'https://server.smartlead.ai/api/v1';
 const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '20000', 10);
-const MAX_CONCURRENT_REQUESTS = parseInt(process.env.MAX_CONCURRENT_REQUESTS || '5', 10);
 
 interface CampaignLeadStats {
   total?: number;
@@ -455,29 +454,17 @@ async function batchFetchAnalytics(
   startDate?: string,
   endDate?: string
 ): Promise<(CampaignAnalytics | null)[]> {
-  const results: (CampaignAnalytics | null)[] = [];
+  // Fetch all campaigns in parallel - no batching delays
+  const allPromises = campaigns.map(campaign => 
+    fetchCampaignAnalytics(campaign.id, apiKey, signal, startDate, endDate)
+  );
   
-  for (let i = 0; i < campaigns.length; i += MAX_CONCURRENT_REQUESTS) {
-    const batch = campaigns.slice(i, i + MAX_CONCURRENT_REQUESTS);
-    const batchPromises = batch.map(campaign => 
-      fetchCampaignAnalytics(campaign.id, apiKey, signal, startDate, endDate)
-    );
-    
-    const batchResults = await Promise.allSettled(batchPromises);
-    results.push(
-      ...batchResults.map(result => 
-        result.status === 'fulfilled' ? result.value : null
-      )
-    );
-    
-    if (i + MAX_CONCURRENT_REQUESTS < campaigns.length) {
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
-  }
+  const allResults = await Promise.allSettled(allPromises);
   
   // Return results maintaining index alignment with campaigns array
-  // Do NOT filter nulls here - keep them so indices match
-  return results;
+  return allResults.map(result => 
+    result.status === 'fulfilled' ? result.value : null
+  );
 }
 
 export async function GET(request: Request) {
