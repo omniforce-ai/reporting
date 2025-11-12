@@ -6,7 +6,8 @@ import { usePathname } from 'next/navigation';
 import { 
   OmniforceLogoViolet,
   UserCircleIcon, 
-  UsersIcon
+  UsersIcon,
+  FontIcon
 } from '@/components/icons';
 import {
   Sidebar,
@@ -35,6 +36,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const navItems = [
     { href: '/admin/clients', label: 'Clients', icon: UserCircleIcon },
     { href: '/admin/users', label: 'Users', icon: UsersIcon },
+    { href: '/admin/fonts', label: 'Fonts', icon: FontIcon },
   ];
 
   return (

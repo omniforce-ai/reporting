@@ -12,7 +12,7 @@ export default {
   		fontFamily: {
   			sans: [
   				'var(--font-sans)',
-  				'Inter Variable',
+  				'DM Sans',
   				'system-ui',
   				'sans-serif'
   			],

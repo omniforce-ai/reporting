@@ -1,5 +1,4 @@
-/* Inter Variable Font - Better performance than static fonts */
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+/* DM Sans Font - Now loaded via next/font/google in layout.tsx */
 
 @tailwind base;
 @tailwind components;
@@ -117,7 +116,7 @@
   
   /* Font variable setup for Next.js font optimization */
   :root {
-    --font-sans: 'Inter Variable', system-ui, sans-serif;
+    --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
     --font-mono: ui-monospace, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
   }
 }
