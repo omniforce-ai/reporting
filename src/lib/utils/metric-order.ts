@@ -41,7 +41,6 @@ const METRIC_ORDER: Record<string, number> = {
   'LinkedIn Connections': 5,
   
   // Category 6: User Actions (Conversations, Engagements)
-  'Replies': 6,
   'Total Conversations': 6,
   'Conversations Started': 6,
   'Conversations': 6,
@@ -51,10 +50,10 @@ const METRIC_ORDER: Record<string, number> = {
   'Reply Rate': 7,
   
   // Category 8: Replies / Conversions
+  'Replies': 8,
   'Positive Replies': 8,
   'Click Rate': 8,
   'Conversions': 8,
-  'Replies': 8,
 };
 
 /**
@@ -75,9 +74,9 @@ function getMetricOrder(title: string): number {
   if (lowerTitle.includes('sent') || lowerTitle.includes('emails sent')) return 3;
   if (lowerTitle.includes('opened or connected') || lowerTitle.includes('emails opened') || (lowerTitle.includes('open') && !lowerTitle.includes('conversation') && !lowerTitle.includes('rate'))) return 4;
   if (lowerTitle.includes('linkedin accepted')) return 5;
-  if (lowerTitle === 'replies' || (lowerTitle.includes('replies') && !lowerTitle.includes('positive') && !lowerTitle.includes('rate'))) return 6;
   if (lowerTitle.includes('conversation') || lowerTitle.includes('engagement')) return 6;
   if (lowerTitle.includes('reply rate')) return 7;
+  if (lowerTitle === 'replies' || (lowerTitle.includes('replies') && !lowerTitle.includes('positive') && !lowerTitle.includes('rate'))) return 8;
   if (lowerTitle.includes('positive reply') || lowerTitle.includes('reply') || 
       lowerTitle.includes('conversion') || lowerTitle.includes('click rate')) return 8;
   
@@ -98,11 +97,12 @@ export function sortMetrics(metrics: Metric[]): Metric[] {
       return orderA - orderB;
     }
     
-    // Within replies/conversions category (8), order: Positive Replies, Click Rate
+    // Within replies/conversions category (8), order: Replies, Positive Replies, Click Rate
     if (orderA === 8 && orderB === 8) {
       const replyOrder: Record<string, number> = {
-        'Positive Replies': 1,
-        'Click Rate': 2,
+        'Replies': 1,
+        'Positive Replies': 2,
+        'Click Rate': 3,
       };
       const aOrder = replyOrder[a.title] || 99;
       const bOrder = replyOrder[b.title] || 99;
