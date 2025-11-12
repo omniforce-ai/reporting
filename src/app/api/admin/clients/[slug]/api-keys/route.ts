@@ -29,14 +29,20 @@ export async function PUT(
     
     // Merge with existing API keys
     const currentApiKeys = (client.apiKeys as any) || {};
-    const updatedApiKeys = {
-      ...currentApiKeys,
-      smartlead: smartlead || currentApiKeys.smartlead || null,
-      lemlist: lemlist || currentApiKeys.lemlist || null,
-      lemlistEmail: lemlistEmail || currentApiKeys.lemlistEmail || null,
-    };
+    const updatedApiKeys = { ...currentApiKeys };
     
-    // Remove null values
+    // Only update fields that are explicitly provided in the request
+    if (smartlead !== undefined) {
+      updatedApiKeys.smartlead = smartlead || null;
+    }
+    if (lemlist !== undefined) {
+      updatedApiKeys.lemlist = lemlist || null;
+    }
+    if (lemlistEmail !== undefined) {
+      updatedApiKeys.lemlistEmail = lemlistEmail || null;
+    }
+    
+    // Remove null or empty string values
     Object.keys(updatedApiKeys).forEach(key => {
       if (updatedApiKeys[key] === null || updatedApiKeys[key] === '') {
         delete updatedApiKeys[key];

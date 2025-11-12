@@ -6,7 +6,6 @@ import ApiKeysForm from '@/components/admin/ApiKeysForm';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 export default async function ClientDetailPage({
   params,
@@ -21,8 +20,7 @@ export default async function ClientDetailPage({
     notFound();
   }
 
-  const apiKeys = (client.apiKeys as { smartlead?: string; lemlist?: string } | null) || {};
-  const features = (client.features as { enabledFeatures?: string[] } | null) || {};
+  const apiKeys = (client.apiKeys as { smartlead?: string; lemlist?: string; lemlistEmail?: string } | null) || {};
 
   return (
     <div className="flex flex-1 flex-col">
@@ -45,109 +43,64 @@ export default async function ClientDetailPage({
                 <h1 className="text-3xl font-semibold mb-1">
                   {client.name || client.subdomain}
                 </h1>
-                <p className="text-sm text-muted-foreground">Slug: {client.subdomain}</p>
+                <p className="text-sm text-muted-foreground">Path: {client.subdomain}</p>
               </div>
             </div>
           </div>
 
           {/* Content */}
           <div className="grid gap-4 px-4 lg:px-6 md:grid-cols-2">
-            <Card>
+            <Card className="flex flex-col">
               <CardHeader>
-                <CardTitle>API Configuration</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <MailIcon className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Smartlead</span>
-                    </div>
-                    {apiKeys.smartlead ? (
-                      <Badge variant="outline" className="bg-chart-4/10 text-chart-4 border-chart-4/20">
-                        Configured
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">
-                        Not configured
-                      </Badge>
-                    )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MailIcon className="w-5 h-5 text-muted-foreground" />
+                    <CardTitle>Smartlead</CardTitle>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <MailIcon className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Lemlist</span>
-                    </div>
-                    {apiKeys.lemlist ? (
-                      <Badge variant="outline" className="bg-chart-4/10 text-chart-4 border-chart-4/20">
-                        Configured
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline">
-                        Not configured
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <Separator />
-                <div>
-                  <h3 className="text-sm font-medium mb-4">Manage API Keys</h3>
-                  <ApiKeysForm 
-                    clientSlug={slug}
-                    initialApiKeys={apiKeys}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Client Information</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Slug:</span>
-                    <span className="ml-2 font-medium">{client.subdomain}</span>
-                  </div>
-                  {client.customDomain && (
-                    <div>
-                      <span className="text-muted-foreground">Custom Domain:</span>
-                      <span className="ml-2 font-medium">{client.customDomain}</span>
-                    </div>
+                  {apiKeys.smartlead ? (
+                    <Badge variant="outline" className="bg-chart-4/10 text-chart-4 border-chart-4/20">
+                      Configured
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">
+                      Not configured
+                    </Badge>
                   )}
-                  <div>
-                    <span className="text-muted-foreground">Created:</span>
-                    <span className="ml-2 font-medium">
-                      {new Date(client.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Last Updated:</span>
-                    <span className="ml-2 font-medium">
-                      {new Date(client.updatedAt).toLocaleDateString()}
-                    </span>
-                  </div>
                 </div>
+              </CardHeader>
+              <CardContent className="flex flex-col flex-1 min-h-0">
+                <ApiKeysForm 
+                  clientSlug={slug}
+                  initialApiKeys={apiKeys}
+                  platform="smartlead"
+                />
               </CardContent>
             </Card>
 
-            <Card className="md:col-span-2">
+            <Card className="flex flex-col">
               <CardHeader>
-                <CardTitle>Enabled Features</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {features.enabledFeatures && Array.isArray(features.enabledFeatures) && features.enabledFeatures.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {features.enabledFeatures.map((feature: string) => (
-                      <Badge key={feature} variant="outline" className="bg-primary/10 text-primary border-primary/20">
-                        {feature}
-                      </Badge>
-                    ))}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MailIcon className="w-5 h-5 text-muted-foreground" />
+                    <CardTitle>Lemlist</CardTitle>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No features enabled</p>
-                )}
+                  {apiKeys.lemlist ? (
+                    <Badge variant="outline" className="bg-chart-4/10 text-chart-4 border-chart-4/20">
+                      Configured
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">
+                      Not configured
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col flex-1 min-h-0">
+                <ApiKeysForm 
+                  clientSlug={slug}
+                  initialApiKeys={apiKeys}
+                  platform="lemlist"
+                />
               </CardContent>
             </Card>
           </div>

@@ -15,6 +15,7 @@ type ApiKeysFormProps = {
     lemlist?: string;
     lemlistEmail?: string;
   };
+  platform: 'smartlead' | 'lemlist';
 };
 
 function maskApiKey(key: string): string {
@@ -22,7 +23,7 @@ function maskApiKey(key: string): string {
   return '••••' + key.slice(-4);
 }
 
-export default function ApiKeysForm({ clientSlug, initialApiKeys }: ApiKeysFormProps) {
+export default function ApiKeysForm({ clientSlug, initialApiKeys, platform }: ApiKeysFormProps) {
   const router = useRouter();
   const [smartlead, setSmartlead] = useState(initialApiKeys.smartlead || '');
   const [lemlist, setLemlist] = useState(initialApiKeys.lemlist || '');
@@ -42,16 +43,21 @@ export default function ApiKeysForm({ clientSlug, initialApiKeys }: ApiKeysFormP
     setSuccess(false);
 
     try {
+      const payload: any = {};
+      
+      if (platform === 'smartlead') {
+        payload.smartlead = smartlead || null;
+      } else if (platform === 'lemlist') {
+        payload.lemlist = lemlist || null;
+        payload.lemlistEmail = lemlistEmail || null;
+      }
+
       const response = await fetch(`/api/admin/clients/${clientSlug}/api-keys`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          smartlead: smartlead || null,
-          lemlist: lemlist || null,
-          lemlistEmail: lemlistEmail || null,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -76,8 +82,9 @@ export default function ApiKeysForm({ clientSlug, initialApiKeys }: ApiKeysFormP
   const hasLemlist = !!initialApiKeys.lemlist;
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-4">
+    <form onSubmit={handleSubmit} className="flex flex-col h-full min-h-0">
+      <div className="flex-1 space-y-4 min-h-0">
+      {platform === 'smartlead' && (
         <div className="space-y-2">
           <Label htmlFor="smartlead">Smartlead API Key</Label>
           <div className="relative">
@@ -105,80 +112,77 @@ export default function ApiKeysForm({ clientSlug, initialApiKeys }: ApiKeysFormP
               </Button>
             )}
           </div>
-          {hasSmartlead && !showSmartlead && (
-            <p className="text-xs text-muted-foreground">
-              Leave empty to remove. Enter new key to update.
-            </p>
-          )}
         </div>
+      )}
 
-        <div className="space-y-2">
-          <Label htmlFor="lemlist">Lemlist API Key</Label>
-          <div className="relative">
-            <Input
-              id="lemlist"
-              type={showLemlist ? 'text' : 'password'}
-              value={lemlist}
-              onChange={(e) => setLemlist(e.target.value)}
-              placeholder={hasLemlist ? maskApiKey(initialApiKeys.lemlist || '') : 'Enter Lemlist API key'}
-              className="pr-10"
-            />
-            {hasLemlist && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                onClick={() => setShowLemlist(!showLemlist)}
-              >
-                {showLemlist ? (
-                  <EyeSlashIcon className="h-4 w-4" />
-                ) : (
-                  <EyeIcon className="h-4 w-4" />
-                )}
-              </Button>
-            )}
+      {platform === 'lemlist' && (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="lemlist">Lemlist API Key</Label>
+            <div className="relative">
+              <Input
+                id="lemlist"
+                type={showLemlist ? 'text' : 'password'}
+                value={lemlist}
+                onChange={(e) => setLemlist(e.target.value)}
+                placeholder={hasLemlist ? maskApiKey(initialApiKeys.lemlist || '') : 'Enter Lemlist API key'}
+                className="pr-10"
+              />
+              {hasLemlist && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                  onClick={() => setShowLemlist(!showLemlist)}
+                >
+                  {showLemlist ? (
+                    <EyeSlashIcon className="h-4 w-4" />
+                  ) : (
+                    <EyeIcon className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
-          {hasLemlist && !showLemlist && (
-            <p className="text-xs text-muted-foreground">
-              Leave empty to remove. Enter new key to update.
-            </p>
-          )}
-        </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="lemlistEmail">Lemlist Email (optional)</Label>
-          <Input
-            id="lemlistEmail"
-            type="email"
-            value={lemlistEmail}
-            onChange={(e) => setLemlistEmail(e.target.value)}
-            placeholder="Enter email associated with Lemlist account"
-          />
-        </div>
+          <div className="space-y-2">
+            <Label htmlFor="lemlistEmail">Lemlist Email</Label>
+            <Input
+              id="lemlistEmail"
+              type="email"
+              value={lemlistEmail}
+              onChange={(e) => setLemlistEmail(e.target.value)}
+              placeholder="Enter email associated with Lemlist account"
+            />
+          </div>
+        </>
+      )}
       </div>
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      <div className="mt-auto pt-4 space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-      {success && (
-        <Alert className="bg-chart-4/10 border-chart-4/20">
-          <AlertDescription className="text-chart-4">
-            API keys updated successfully
-          </AlertDescription>
-        </Alert>
-      )}
+        {success && (
+          <Alert className="bg-chart-4/10 border-chart-4/20">
+            <AlertDescription className="text-chart-4">
+              API keys updated successfully
+            </AlertDescription>
+          </Alert>
+        )}
 
-      <Button
-        type="submit"
-        disabled={loading}
-        className="w-full"
-      >
-        {loading ? 'Saving...' : 'Save API Keys'}
-      </Button>
+        <Button
+          type="submit"
+          disabled={loading}
+          className="w-full"
+        >
+          {loading ? 'Saving...' : 'Save Changes'}
+        </Button>
+      </div>
     </form>
   );
 }
