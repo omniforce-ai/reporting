@@ -2,10 +2,9 @@ import { NextResponse } from 'next/server';
 import { getCurrentTenant } from '@/lib/utils/tenant';
 import { sortMetrics } from '@/lib/utils/metric-order';
 
-const SMARTLEAD_BASE_URL = 'https://server.smartlead.ai/api/v1';
-const REQUEST_TIMEOUT = 20000;
-const CACHE_REVALIDATE = 300;
-const MAX_CONCURRENT_REQUESTS = 5;
+const SMARTLEAD_BASE_URL = process.env.SMARTLEAD_BASE_URL || 'https://server.smartlead.ai/api/v1';
+const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '20000', 10);
+const MAX_CONCURRENT_REQUESTS = parseInt(process.env.MAX_CONCURRENT_REQUESTS || '5', 10);
 
 interface CampaignLeadStats {
   total?: number;
@@ -200,7 +199,7 @@ async function fetchCampaignAnalyticsByDateRange(
           'Content-Type': 'application/json',
           'User-Agent': 'Omniforce-Reporting/1.0',
         },
-        next: { revalidate: CACHE_REVALIDATE },
+        cache: 'no-store',
       }
     );
 
@@ -233,7 +232,7 @@ async function fetchCampaignAnalyticsByDateRange(
             'Content-Type': 'application/json',
             'User-Agent': 'Omniforce-Reporting/1.0',
           },
-          next: { revalidate: CACHE_REVALIDATE },
+          cache: 'no-store',
         });
         
         if (allTimeResponse.ok) {
@@ -301,7 +300,7 @@ async function fetchCampaignAnalytics(
             'Content-Type': 'application/json',
             'User-Agent': 'Omniforce-Reporting/1.0',
           },
-          next: { revalidate: CACHE_REVALIDATE },
+          cache: 'no-store',
         }
       );
 
@@ -519,7 +518,7 @@ export async function GET(request: Request) {
             'Content-Type': 'application/json',
             'User-Agent': 'Omniforce-Reporting/1.0',
           },
-          next: { revalidate: CACHE_REVALIDATE },
+          cache: 'no-store',
         }
       );
 
@@ -765,37 +764,6 @@ export async function GET(request: Request) {
       const end = endDate ? new Date(endDate) : new Date();
       const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
       
-      // Group replies by week for trend chart
-      const replyTrendData: Array<{ name: string; replies: number }> = [];
-      if (startDate && endDate) {
-        const weekStart = new Date(start);
-        while (weekStart <= end) {
-          const weekEnd = new Date(weekStart);
-          weekEnd.setDate(weekEnd.getDate() + 6);
-          if (weekEnd > end) weekEnd.setTime(end.getTime());
-          
-          // For now, distribute replies evenly across weeks (simplified)
-          // In production, you'd fetch daily analytics and group by week
-          const weekReplies = Math.round(totals.replies / Math.ceil(daysDiff / 7));
-          replyTrendData.push({
-            name: weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            replies: weekReplies,
-          });
-          
-          weekStart.setDate(weekStart.getDate() + 7);
-        }
-      } else {
-        // Default: last 4 weeks
-        for (let i = 3; i >= 0; i--) {
-          const weekDate = new Date();
-          weekDate.setDate(weekDate.getDate() - (i * 7));
-          replyTrendData.push({
-            name: weekDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            replies: Math.round(totals.replies / 4),
-          });
-        }
-      }
-
       // Campaign Performance Leaderboard (sorted by replies)
       const campaignLeaderboard = campaigns.map((campaign, index) => {
         const analytics = analyticsResults[index];
@@ -803,6 +771,7 @@ export async function GET(request: Request) {
           return {
             name: campaign.name,
             replies: 0,
+            totalContacted: 0,
             openRate: 0,
             replyRate: 0,
           };
@@ -813,6 +782,7 @@ export async function GET(request: Request) {
         return {
           name: campaign.name,
           replies: metrics.replies,
+          totalContacted: metrics.emailsSent,
           openRate: campaignOpenRate,
           replyRate: campaignReplyRate,
         };
@@ -878,24 +848,16 @@ export async function GET(request: Request) {
           endpoint: 'GET /api/dashboard/email',
         },
         campaignLeaderboard: {
-          title: 'Campaign Performance Leaderboard',
+          title: 'Campaign Performance',
           description: 'Shows which campaigns drive most conversations',
           data: campaignLeaderboard.map(c => ({ 
             name: c.name, 
             value: c.replies,
+            totalContacted: c.totalContacted,
             openRate: c.openRate,
             replyRate: c.replyRate,
           })),
           valueLabel: 'Replies',
-          endpoint: 'GET /api/dashboard/email',
-        },
-        replyTrend: {
-          title: 'Reply Trend Over Time',
-          description: 'Shows conversation momentum - replies per week trend',
-          data: replyTrendData.map(item => ({
-            name: item.name,
-            avgScore: item.replies,
-          })),
           endpoint: 'GET /api/dashboard/email',
         },
         // Keep legacy fields for backward compatibility
@@ -924,7 +886,7 @@ export async function GET(request: Request) {
         { data: dashboardData },
         {
           headers: {
-            'Cache-Control': `public, s-maxage=${CACHE_REVALIDATE}, stale-while-revalidate=60`,
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
           },
         }
       );

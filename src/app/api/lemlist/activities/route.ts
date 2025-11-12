@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getCurrentTenant } from '@/lib/utils/tenant';
 
-const LEMLIST_BASE_URL = 'https://api.lemlist.com/api';
-const REQUEST_TIMEOUT = 20000;
-const CACHE_REVALIDATE = 300;
-const MAX_CONCURRENT_REQUESTS = 5;
+const LEMLIST_BASE_URL = process.env.LEMLIST_BASE_URL || 'https://api.lemlist.com/api';
+const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '20000', 10);
+const MAX_CONCURRENT_REQUESTS = parseInt(process.env.MAX_CONCURRENT_REQUESTS || '5', 10);
 
 function createBasicAuth(email: string, apiKey: string): string {
   const credentials = Buffer.from(`${email}:${apiKey}`).toString('base64');
@@ -51,7 +50,7 @@ async function fetchActivitiesPage(
         'Content-Type': 'application/json',
         'User-Agent': 'Omniforce-Reporting/1.0',
       },
-      next: { revalidate: CACHE_REVALIDATE },
+      cache: 'no-store',
     }
   );
 
@@ -133,12 +132,18 @@ export async function GET(request: Request) {
     const tenant = await getCurrentTenant();
     const apiKeys = tenant.apiKeys as { lemlist?: string; lemlistEmail?: string } | null;
     const lemlistApiKey = apiKeys?.lemlist;
-    // Default to alistair@omniforce.ai for Creation Exhibition client
-    const lemlistEmail = apiKeys?.lemlistEmail || 'alistair@omniforce.ai';
+    const lemlistEmail = apiKeys?.lemlistEmail;
 
     if (!lemlistApiKey) {
       return NextResponse.json(
         { error: 'Lemlist API key not configured for this tenant' },
+        { status: 400 }
+      );
+    }
+
+    if (!lemlistEmail) {
+      return NextResponse.json(
+        { error: 'Lemlist email not configured for this tenant' },
         { status: 400 }
       );
     }
@@ -162,7 +167,7 @@ export async function GET(request: Request) {
         { activities },
         {
           headers: {
-            'Cache-Control': `public, s-maxage=${CACHE_REVALIDATE}, stale-while-revalidate=60`,
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
           },
         }
       );

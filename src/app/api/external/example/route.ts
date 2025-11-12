@@ -25,7 +25,7 @@ export async function GET(request: Request) {
         'Content-Type': 'application/json',
       },
       signal: controller.signal,
-      next: { revalidate: 3600 }, // Cache for 1 hour
+      cache: 'no-store',
     });
 
     clearTimeout(timeoutId);

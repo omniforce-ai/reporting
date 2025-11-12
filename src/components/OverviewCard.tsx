@@ -40,7 +40,7 @@ const OverviewCard: React.FC<OverviewCardProps> = ({
         <CardTitle className="text-xl font-bold">Overview</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
           {metrics.map((metric, index) => {
             const comparisonData = parseComparisonData(metric.comparisonText);
             const isPositive = comparisonData?.isPositive;
@@ -71,19 +71,9 @@ const OverviewCard: React.FC<OverviewCardProps> = ({
                         {metric.comparisonText && badgeText && (
                           <Badge 
                             variant="outline" 
-                            className={cn(
-                              "flex items-center gap-1 h-5 px-2 text-xs font-medium rounded-md py-0.5",
-                              isPositive && "bg-primary/10 text-primary border-primary/20",
-                              isNegative && "bg-muted text-foreground/70 border-0",
-                              isNeutral && "bg-muted text-muted-foreground border-0"
-                            )}
+                            className="flex items-center gap-1 h-5 px-2 text-xs font-medium rounded-md py-0.5 bg-primary/10 text-primary border-primary/20"
                           >
-                            <TrendIcon className={cn(
-                              "h-3 w-3",
-                              isPositive && "text-primary",
-                              isNegative && "text-foreground/70",
-                              isNeutral && "text-muted-foreground"
-                            )} />
+                            <TrendIcon className="h-3 w-3 text-primary" />
                             {badgeText}
                           </Badge>
                         )}
@@ -105,12 +95,7 @@ const OverviewCard: React.FC<OverviewCardProps> = ({
                           {comparisonData && comparisonData.absoluteChange && (
                             <div className="flex items-baseline justify-between gap-4">
                               <span className="text-foreground/70">Change:</span>
-                              <span className={cn(
-                                "font-semibold",
-                                comparisonData.isPositive && "text-primary",
-                                comparisonData.isNegative && "text-foreground/70",
-                                comparisonData.isNeutral && "text-muted-foreground"
-                              )}>
+                              <span className="font-semibold text-primary">
                                 {comparisonData.absoluteChange}
                                 {comparisonData.percentage && ` (${comparisonData.percentage})`}
                               </span>

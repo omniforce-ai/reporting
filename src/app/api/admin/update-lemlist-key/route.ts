@@ -8,7 +8,14 @@ import { supabase } from '@/lib/db/supabase';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { apiKey, email = 'alistair@omniforce.ai', subdomain } = body;
+    const { apiKey, email, subdomain } = body;
+    
+    if (!email) {
+      return NextResponse.json(
+        { error: 'Email is required' },
+        { status: 400 }
+      );
+    }
 
     if (!apiKey) {
       return NextResponse.json(

@@ -79,6 +79,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - ✅ Type-safe database access with Prisma
 - ✅ Authentication with NextAuth.js
 - ✅ Real-time dashboard with charts and metrics
+- ✅ Design system based on [shadcn/ui](https://ui.shadcn.com)
 
 ## Database
 
@@ -113,6 +114,17 @@ npm run db:migrate
 # Open Prisma Studio
 npm run db:studio
 ```
+
+## Design System
+
+The application uses a design system built on [shadcn/ui](https://ui.shadcn.com) with:
+
+- **Spacing:** 4px base unit system for consistent spacing
+- **Typography:** Inter Variable font with defined type scale
+- **Colors:** CSS variables for theming and multi-tenant customization
+- **Components:** shadcn/ui component library with custom extensions
+
+See [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) for complete design system documentation.
 
 ## Security
 

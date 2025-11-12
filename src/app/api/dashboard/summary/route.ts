@@ -3,8 +3,7 @@ import { getCurrentTenant } from '@/lib/utils/tenant';
 import { getEnabledFeatures } from '@/lib/utils/features';
 import { sortMetrics } from '@/lib/utils/metric-order';
 
-const REQUEST_TIMEOUT = 30000;
-const CACHE_REVALIDATE = 300;
+const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '30000', 10);
 
 function formatNumber(num: number): string {
   return num.toLocaleString('en-US');
@@ -79,12 +78,7 @@ export async function GET(request: Request) {
     if (emailFeatures.length === 0) {
         return NextResponse.json({
           data: {
-            metrics: [
-              { title: 'Total Conversations', value: '0' },
-              { title: 'Positive Replies', value: '0' },
-              { title: 'Total Emails Sent', value: '0' },
-              { title: 'Active Campaigns', value: '0' },
-            ],
+            metrics: [],
           },
         });
     }
@@ -97,7 +91,9 @@ export async function GET(request: Request) {
       let baseUrl: string;
       
       if (process.env.NODE_ENV === 'development') {
-        baseUrl = `http://localhost:${process.env.PORT || 3000}`;
+        const host = request.headers.get('host') || url.host;
+        const protocol = url.protocol || 'http:';
+        baseUrl = `${protocol}//${host}`;
       } else {
         const host = request.headers.get('host') || url.host;
         const protocol = url.protocol || 'https:';
@@ -109,54 +105,76 @@ export async function GET(request: Request) {
       console.log(`[Summary API] Fetching data for features: ${emailFeatures.join(', ')}`);
       console.log(`[Summary API] Base URL: ${baseUrl}`);
       
-      const fetchPromises = emailFeatures.map(feature => {
+      const previousPeriod = startDate && endDate ? calculatePreviousPeriod(startDate, endDate) : null;
+      const prevDateRange = previousPeriod ? `&startDate=${previousPeriod.start}&endDate=${previousPeriod.end}` : '';
+
+      const allFetchPromises: Promise<{ feature: string; data: any; period: 'current' | 'previous' } | null>[] = [];
+
+      emailFeatures.forEach(feature => {
         const endpoint = feature === 'smartlead' ? '/api/dashboard/email' : '/api/dashboard/lemlist';
-        const fullUrl = `${baseUrl}${endpoint}?client=${tenant.subdomain}${dateRange}`;
-        console.log(`[Summary API] Fetching ${feature} from: ${fullUrl}`);
+        const currentUrl = `${baseUrl}${endpoint}?client=${tenant.subdomain}${dateRange}`;
         
-        return fetch(fullUrl, {
-          signal: controller.signal,
-          headers: {
-            'Content-Type': 'application/json',
-            'Cookie': request.headers.get('cookie') || '',
-            'User-Agent': 'Omniforce-Reporting/1.0',
-          },
-        }).then(async res => {
-          if (!res.ok) {
-            const errorText = await res.text().catch(() => '');
-            console.error(`[Summary API] Failed to fetch ${feature} data:`, res.status, errorText.substring(0, 200));
+        allFetchPromises.push(
+          fetch(currentUrl, {
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              'Cookie': request.headers.get('cookie') || '',
+              'User-Agent': 'Omniforce-Reporting/1.0',
+            },
+          }).then(async res => {
+            if (!res.ok) {
+              const errorText = await res.text().catch(() => '');
+              console.error(`[Summary API] Failed to fetch ${feature} current data:`, res.status, errorText.substring(0, 200));
+              return null;
+            }
+            const data = await res.json();
+            console.log(`[Summary API] Successfully fetched ${feature} current data:`, {
+              hasMetrics: !!(data.data?.metrics || data.metrics),
+              metricsCount: (data.data?.metrics || data.metrics || []).length,
+            });
+            return { feature, data: data.data || data, period: 'current' as const };
+          }).catch(err => {
+            if (err.name !== 'AbortError') {
+              console.error(`[Summary API] Error fetching ${feature} current data:`, err.message);
+            }
             return null;
-          }
-          const data = await res.json();
-          console.log(`[Summary API] Successfully fetched ${feature} data:`, {
-            hasMetrics: !!(data.data?.metrics || data.metrics),
-            metricsCount: (data.data?.metrics || data.metrics || []).length,
-          });
-          return { feature, data: data.data || data };
-        }).catch(err => {
-          if (err.name !== 'AbortError') {
-            console.error(`[Summary API] Error fetching ${feature} data:`, err.message);
-          }
-          return null;
-        });
+          })
+        );
+
+        if (previousPeriod) {
+          const prevUrl = `${baseUrl}${endpoint}?client=${tenant.subdomain}${prevDateRange}`;
+          allFetchPromises.push(
+            fetch(prevUrl, {
+              signal: controller.signal,
+              headers: {
+                'Content-Type': 'application/json',
+                'Cookie': request.headers.get('cookie') || '',
+                'User-Agent': 'Omniforce-Reporting/1.0',
+              },
+            }).then(async res => {
+              if (!res.ok) return null;
+              const data = await res.json();
+              return { feature, data: data.data || data, period: 'previous' as const };
+            }).catch(() => null)
+          );
+        }
       });
 
-      const results = await Promise.all(fetchPromises);
-      const validResults = results.filter(r => r !== null);
+      const allResults = await Promise.all(allFetchPromises);
+      const validResults = allResults.filter((r): r is { feature: string; data: any; period: 'current' | 'previous' } => r !== null);
 
       if (validResults.length === 0) {
         clearTimeout(timeoutId);
         return NextResponse.json({
           data: {
-            metrics: [
-              { title: 'Total Conversations', value: '0' },
-              { title: 'Positive Replies', value: '0' },
-              { title: 'Total Emails Sent', value: '0' },
-              { title: 'Active Campaigns', value: '0' },
-            ],
+            metrics: [],
           },
         });
       }
+
+      const currentResults = validResults.filter(r => r.period === 'current');
+      const prevValidResults = previousPeriod ? validResults.filter(r => r.period === 'previous') : [];
 
       let previousPeriodTotals: {
         emailsSent: number;
@@ -166,28 +184,7 @@ export async function GET(request: Request) {
         campaigns: number;
       } | null = null;
 
-      if (startDate && endDate) {
-        const previousPeriod = calculatePreviousPeriod(startDate, endDate);
-        const prevDateRange = `&startDate=${previousPeriod.start}&endDate=${previousPeriod.end}`;
-        
-        const prevFetchPromises = emailFeatures.map(feature => {
-          const endpoint = feature === 'smartlead' ? '/api/dashboard/email' : '/api/dashboard/lemlist';
-          return fetch(`${baseUrl}${endpoint}?client=${tenant.subdomain}${prevDateRange}`, {
-            signal: controller.signal,
-            headers: {
-              'Content-Type': 'application/json',
-              'Cookie': request.headers.get('cookie') || '',
-              'User-Agent': 'Omniforce-Reporting/1.0',
-            },
-          }).then(async res => {
-            if (!res.ok) return null;
-            const data = await res.json();
-            return { feature, data: data.data || data };
-          }).catch(() => null);
-        });
-
-        const prevResults = await Promise.all(prevFetchPromises);
-        const prevValidResults = prevResults.filter(r => r !== null);
+      if (prevValidResults.length > 0) {
 
         previousPeriodTotals = prevValidResults.reduce((acc, result) => {
           if (!result) return acc;
@@ -206,12 +203,13 @@ export async function GET(request: Request) {
             acc.campaigns += parseInt(campaignsMetric?.value?.replace(/,/g, '') || '0', 10);
           } else if (result.feature === 'lemlist') {
             const metrics = data.metrics || [];
-            const sentMetric = metrics.find((m: any) => m.title === 'Emails Sent');
-            const replyRateMetric = metrics.find((m: any) => m.title === 'Email Reply Rate');
-            const campaignsMetric = metrics.find((m: any) => m.title === 'Number of Campaigns');
+            const totalContactedMetric = metrics.find((m: any) => m.title === 'Total Contacted');
+            const emailsOpenedMetric = metrics.find((m: any) => m.title === 'Opened or Connected');
+            const positiveRepliesMetric = metrics.find((m: any) => m.title === 'Positive Replies');
             
-            acc.emailsSent += parseInt(sentMetric?.value?.replace(/,/g, '') || '0', 10);
-            acc.campaigns += parseInt(campaignsMetric?.value?.replace(/,/g, '') || '0', 10);
+            acc.emailsSent += parseInt(totalContactedMetric?.value?.replace(/,/g, '') || '0', 10);
+            acc.emailsOpened += parseInt(emailsOpenedMetric?.value?.replace(/,/g, '') || '0', 10);
+            acc.positiveReplies += parseInt(positiveRepliesMetric?.value?.replace(/,/g, '') || '0', 10);
           }
           
           return acc;
@@ -226,7 +224,7 @@ export async function GET(request: Request) {
 
       clearTimeout(timeoutId);
 
-      const aggregated = validResults.reduce((acc, result) => {
+      const aggregated = currentResults.reduce((acc, result) => {
         if (!result) return acc;
         const data = result.data;
         
@@ -251,18 +249,17 @@ export async function GET(request: Request) {
             acc.campaignLeaderboards.push(data.campaignLeaderboard);
           }
           
-          if (data.replyTrend) {
-            acc.replyTrends.push(data.replyTrend);
-          }
         } else if (result.feature === 'lemlist') {
           const metrics = data.metrics || [];
-          const sentMetric = metrics.find((m: any) => m.title === 'Emails Sent');
-          const replyRateMetric = metrics.find((m: any) => m.title === 'Email Reply Rate');
-          const campaignsMetric = metrics.find((m: any) => m.title === 'Number of Campaigns');
+          const totalContactedMetric = metrics.find((m: any) => m.title === 'Total Contacted');
+          const emailsOpenedMetric = metrics.find((m: any) => m.title === 'Opened or Connected');
+          const replyRateMetric = metrics.find((m: any) => m.title === 'Reply Rate');
+          const positiveRepliesMetric = metrics.find((m: any) => m.title === 'Positive Replies');
           
-          const emailsSent = parseInt(sentMetric?.value?.replace(/,/g, '') || '0', 10);
-          acc.emailsSent += emailsSent;
-          acc.campaigns += parseInt(campaignsMetric?.value?.replace(/,/g, '') || '0', 10);
+          const totalContacted = parseInt(totalContactedMetric?.value?.replace(/,/g, '') || '0', 10);
+          acc.emailsSent += totalContacted;
+          acc.emailsOpened += parseInt(emailsOpenedMetric?.value?.replace(/,/g, '') || '0', 10);
+          acc.positiveReplies += parseInt(positiveRepliesMetric?.value?.replace(/,/g, '') || '0', 10);
           
         }
         
@@ -275,7 +272,6 @@ export async function GET(request: Request) {
         campaigns: 0,
         funnelData: null as any,
         campaignLeaderboards: [] as any[],
-        replyTrends: [] as any[],
       });
 
       const previousReplies = previousPeriodTotals?.replies || 0;
@@ -283,26 +279,42 @@ export async function GET(request: Request) {
       const previousCampaigns = previousPeriodTotals?.campaigns || 0;
       const previousEmailsSent = previousPeriodTotals?.emailsSent || 0;
 
+      const totalContacted = aggregated.emailsSent;
+      const emailsOpened = aggregated.emailsOpened;
+      const totalReplies = aggregated.replies;
+      const replyRate = totalContacted > 0 ? calculatePercentage(totalReplies, totalContacted) : 0;
+      
+      const previousTotalContacted = previousPeriodTotals?.emailsSent || 0;
+      const previousEmailsOpened = previousPeriodTotals?.emailsOpened || 0;
+      const previousReplyRate = previousTotalContacted > 0 ? calculatePercentage(previousReplies, previousTotalContacted) : 0;
+
       const metrics = sortMetrics([
         {
-          title: 'Active Campaigns',
-          value: formatNumber(aggregated.campaigns),
+          title: 'Total Contacted',
+          value: formatNumber(totalContacted),
           comparisonText: previousPeriodTotals
-            ? formatComparison(aggregated.campaigns, previousCampaigns)
+            ? formatComparison(totalContacted, previousTotalContacted)
             : '→ Same',
         },
         {
-          title: 'Total Emails Sent',
-          value: formatNumber(aggregated.emailsSent),
+          title: 'Opened or Connected',
+          value: formatNumber(emailsOpened),
           comparisonText: previousPeriodTotals
-            ? formatComparison(aggregated.emailsSent, previousEmailsSent)
+            ? formatComparison(emailsOpened, previousEmailsOpened)
             : '→ Same',
         },
         {
-          title: 'Total Conversations',
-          value: formatNumber(aggregated.replies),
+          title: 'Replies',
+          value: formatNumber(totalReplies),
           comparisonText: previousPeriodTotals
-            ? formatComparison(aggregated.replies, previousReplies)
+            ? formatComparison(totalReplies, previousReplies)
+            : '→ Same',
+        },
+        {
+          title: 'Reply Rate',
+          value: `${replyRate.toFixed(1)}%`,
+          comparisonText: previousPeriodTotals
+            ? formatComparison(replyRate, previousReplyRate, true)
             : '→ Same',
         },
         {
@@ -319,10 +331,6 @@ export async function GET(request: Request) {
         .sort((a: any, b: any) => (b.value || 0) - (a.value || 0))
         .slice(0, 10);
 
-      const combinedReplyTrend = aggregated.replyTrends.length > 0
-        ? aggregated.replyTrends[0]
-        : null;
-
       const dashboardData = {
         metrics: metrics,
         conversationFunnel: aggregated.funnelData || null,
@@ -332,14 +340,12 @@ export async function GET(request: Request) {
           data: combinedCampaignLeaderboard,
           valueLabel: 'Replies',
         } : null,
-        replyTrend: combinedReplyTrend || null,
       };
 
       console.log(`[Summary API] Returning aggregated data:`, {
         metricsCount: metrics.length,
         hasFunnel: !!dashboardData.conversationFunnel,
         hasLeaderboard: !!dashboardData.campaignLeaderboard,
-        hasTrend: !!dashboardData.replyTrend,
         aggregatedValues: {
           replies: aggregated.replies,
           positiveReplies: aggregated.positiveReplies,
@@ -352,7 +358,7 @@ export async function GET(request: Request) {
         { data: dashboardData },
         {
           headers: {
-            'Cache-Control': `public, s-maxage=${CACHE_REVALIDATE}, stale-while-revalidate=60`,
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
           },
         }
       );

@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getCurrentTenant } from '@/lib/utils/tenant';
 
-const SMARTLEAD_BASE_URL = 'https://server.smartlead.ai/api/v1';
-const REQUEST_TIMEOUT = 10000;
-const CACHE_REVALIDATE = 300; // 5 minutes
+const SMARTLEAD_BASE_URL = process.env.SMARTLEAD_BASE_URL || 'https://server.smartlead.ai/api/v1';
+const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '10000', 10);
 
 export async function GET(request: Request) {
   try {
@@ -30,7 +29,7 @@ export async function GET(request: Request) {
             'Content-Type': 'application/json',
             'User-Agent': 'Omniforce-Reporting/1.0',
           },
-          next: { revalidate: CACHE_REVALIDATE },
+          cache: 'no-store',
         }
       );
 
@@ -62,7 +61,7 @@ export async function GET(request: Request) {
         { campaigns },
         {
           headers: {
-            'Cache-Control': `public, s-maxage=${CACHE_REVALIDATE}, stale-while-revalidate=60`,
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
           },
         }
       );

@@ -38,8 +38,9 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   ];
 
   return (
-    <SidebarProvider>
-      <Sidebar collapsible="offcanvas" variant="inset">
+    <div className="flex h-screen w-full">
+      <SidebarProvider>
+        <Sidebar collapsible="offcanvas" variant="inset">
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -93,11 +94,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           )}
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset>
+      <SidebarInset className="flex flex-col overflow-hidden">
         <SiteHeader />
-        {children}
+        <div className="flex-1 overflow-auto">
+          {children}
+        </div>
       </SidebarInset>
-    </SidebarProvider>
+      </SidebarProvider>
+    </div>
   );
 }
 

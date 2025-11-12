@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentTenant } from '@/lib/utils/tenant';
 
-const SMARTLEAD_BASE_URL = 'https://server.smartlead.ai/api/v1';
+const SMARTLEAD_BASE_URL = process.env.SMARTLEAD_BASE_URL || 'https://server.smartlead.ai/api/v1';
 
 export async function GET(
   request: Request,
@@ -31,7 +31,7 @@ export async function GET(
         headers: {
           'Content-Type': 'application/json',
         },
-        next: { revalidate: 300 }, // Cache for 5 minutes
+        cache: 'no-store',
       }
     );
 

@@ -22,7 +22,26 @@ import {
 import { Button } from '@/components/ui/button';
 
 export default async function AdminClientsPage() {
-  const tenants = await getAllTenantsFromSupabase();
+  let tenants = [];
+  try {
+    tenants = await getAllTenantsFromSupabase();
+  } catch (error) {
+    console.error('Error loading tenants:', error);
+    // Return error UI instead of crashing
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center p-8">
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold mb-2">Error Loading Clients</h1>
+          <p className="text-muted-foreground mb-4">
+            {error instanceof Error ? error.message : 'Failed to load clients'}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Check your Supabase connection and environment variables.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col">

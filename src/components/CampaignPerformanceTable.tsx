@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 interface CampaignPerformanceData {
   name: string;
   value: number;
+  totalContacted?: number;
   openRate?: number;
   replyRate?: number;
   [key: string]: any;
@@ -81,6 +82,11 @@ export default function CampaignPerformanceTable({
   const TooltipContentComponent = ({ item }: { item: CampaignPerformanceData }) => (
     <div className="text-sm space-y-1.5">
       <div className="font-semibold">{item.name}</div>
+      {item.totalContacted !== undefined && (
+        <div>
+          Total Contacted: <span className="font-semibold">{item.totalContacted.toLocaleString('en-US')}</span>
+        </div>
+      )}
       <div>
         {valueLabel}: <span className="font-semibold">{formatValue(item.value)}</span>
       </div>
@@ -109,6 +115,9 @@ export default function CampaignPerformanceTable({
             <TableHeader>
               <TableRow className="border-b border-border">
                 <TableHead className="text-foreground font-semibold">Campaign Name</TableHead>
+                {data.some(item => item.totalContacted !== undefined) && (
+                  <TableHead className="text-right text-foreground font-semibold">Total Contacted</TableHead>
+                )}
                 <TableHead className="text-right text-foreground font-semibold">{valueLabel}</TableHead>
               </TableRow>
             </TableHeader>
@@ -125,6 +134,11 @@ export default function CampaignPerformanceTable({
                       <TableCell className="font-medium text-foreground">
                         {item.name}
                       </TableCell>
+                      {data.some(d => d.totalContacted !== undefined) && (
+                        <TableCell className="text-right font-semibold text-foreground">
+                          {item.totalContacted !== undefined ? item.totalContacted.toLocaleString('en-US') : '0'}
+                        </TableCell>
+                      )}
                       <TableCell className="text-right font-semibold text-primary">
                         {formatValue(item.value)}
                       </TableCell>

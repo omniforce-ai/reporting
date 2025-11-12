@@ -44,6 +44,7 @@ export default function ClientDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [emailData, setEmailData] = useState<any>(null);
   const [isLoadingEmailData, setIsLoadingEmailData] = useState(false);
+  const [emailDataError, setEmailDataError] = useState<string | null>(null);
   const [clientInfo, setClientInfo] = useState<{ subdomain: string; name: string; apiSource: 'smartlead' | 'lemlist' | null } | null>(null);
   const datePickerRef = useRef<HTMLDivElement | null>(null);
   
@@ -168,8 +169,17 @@ export default function ClientDashboardPage() {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
-        setIsDatePickerOpen(false);
+      if (!datePickerRef.current || !event.target) {
+        return;
+      }
+
+      try {
+        const target = event.target as Node;
+        if (!datePickerRef.current.contains(target)) {
+          setIsDatePickerOpen(false);
+        }
+      } catch (error) {
+        // Element may have been removed from DOM, safely ignore
       }
     };
 
@@ -312,7 +322,6 @@ export default function ClientDashboardPage() {
               metricsCount: dashboardData?.metrics?.length || 0,
               hasFunnel: !!dashboardData?.conversationFunnel,
               hasLeaderboard: !!dashboardData?.campaignLeaderboard,
-              hasTrend: !!dashboardData?.replyTrend,
               fullData: dashboardData,
             });
             setEmailData(dashboardData);
@@ -342,7 +351,10 @@ export default function ClientDashboardPage() {
           .then(async res => {
             if (!res.ok) {
               const errorData = await res.json().catch(() => ({}));
-              throw new Error(errorData.error || 'Failed to fetch dashboard data');
+              const errorMessage = errorData.message || errorData.error || 'Failed to fetch dashboard data';
+              const error = new Error(errorMessage);
+              (error as any).status = res.status;
+              throw error;
             }
             return res.json();
           })
@@ -352,12 +364,21 @@ export default function ClientDashboardPage() {
             // API returns { data: {...} }, extract the data object
             const dashboardData = response.data || response;
             setEmailData(dashboardData);
+            setEmailDataError(null);
             setIsLoadingEmailData(false);
           })
           .catch(err => {
             if (!isMounted || err.name === 'AbortError') return;
             
-            console.error('Failed to fetch dashboard data:', err);
+            const status = (err as any).status;
+            const isConfigurationError = status === 400;
+            
+            if (!isConfigurationError) {
+              console.error('Failed to fetch dashboard data:', err);
+            }
+            
+            setEmailDataError(err.message || 'Failed to fetch dashboard data');
+            setEmailData(null);
             setIsLoadingEmailData(false);
           });
         
@@ -397,6 +418,11 @@ export default function ClientDashboardPage() {
       activeTabId,
       hasEmailData: !!emailData,
       emailDataKeys: Object.keys(emailData || {}),
+      executiveSummary: emailData.executiveSummary,
+      performanceFunnel: emailData.performanceFunnel,
+      channelBreakdown: emailData.channelBreakdown,
+      engagementQuality: emailData.engagementQuality,
+      metrics: emailData.metrics,
     });
     const transformed: any = {
       metrics: (emailData.metrics || []).map((metric: any) => ({
@@ -405,8 +431,20 @@ export default function ClientDashboardPage() {
       })),
     };
     
-    if (emailData.multichannelFunnel) {
-      transformed.multichannelFunnel = emailData.multichannelFunnel;
+    if (emailData.executiveSummary) {
+      transformed.executiveSummary = emailData.executiveSummary;
+    }
+    
+    if (emailData.performanceFunnel) {
+      transformed.performanceFunnel = emailData.performanceFunnel;
+    }
+    
+    if (emailData.channelBreakdown) {
+      transformed.channelBreakdown = emailData.channelBreakdown;
+    }
+    
+    if (emailData.engagementQuality) {
+      transformed.engagementQuality = emailData.engagementQuality;
     }
     
     if (emailData.channelComparison) {
@@ -429,10 +467,6 @@ export default function ClientDashboardPage() {
       transformed.conversationFunnel = emailData.conversationFunnel;
     }
     
-    if (emailData.replyTrend) {
-      transformed.replyTrend = emailData.replyTrend;
-    }
-    
     // Only set displayData if it has actual content
     const hasMetrics = transformed.metrics && transformed.metrics.length > 0;
     const hasCharts = transformed.completionRate || 
@@ -443,25 +477,47 @@ export default function ClientDashboardPage() {
                      transformed.engagementFunnel ||
                      transformed.conversationFunnel ||
                      transformed.campaignLeaderboard ||
-                     transformed.replyTrend ||
                      transformed.multichannelFunnel ||
                      transformed.channelComparison ||
                      transformed.weeklyTrend ||
-                     transformed.leadFunnel;
+                     transformed.leadFunnel ||
+                     transformed.executiveSummary ||
+                     transformed.performanceFunnel ||
+                     transformed.channelBreakdown ||
+                     transformed.engagementQuality;
     
-    if (hasMetrics || hasCharts) {
+    // For lemlist tab, always set displayData if we have the report structure (even with zeros)
+    const isLemlistTab = activeTabId === 'lemlist';
+    const hasLemlistReport = transformed.executiveSummary || 
+                             transformed.performanceFunnel || 
+                             transformed.channelBreakdown || 
+                             transformed.engagementQuality;
+    
+    if (hasMetrics || hasCharts || (isLemlistTab && hasLemlistReport)) {
       displayData = transformed;
       console.log('[Dashboard] Display data created:', {
         hasMetrics,
         hasCharts,
+        isLemlistTab,
+        hasLemlistReport,
         metricsCount: transformed.metrics?.length || 0,
         chartKeys: Object.keys(transformed).filter(k => k !== 'metrics'),
+        executiveSummary: transformed.executiveSummary,
+        performanceFunnel: transformed.performanceFunnel?.length,
+        channelBreakdown: !!transformed.channelBreakdown,
+        engagementQuality: transformed.engagementQuality,
       });
     } else {
       console.warn('[Dashboard] No display data - missing metrics and charts:', {
         hasMetrics,
         hasCharts,
+        isLemlistTab,
+        hasLemlistReport,
         transformedKeys: Object.keys(transformed),
+        executiveSummary: transformed.executiveSummary,
+        performanceFunnel: transformed.performanceFunnel,
+        channelBreakdown: transformed.channelBreakdown,
+        engagementQuality: transformed.engagementQuality,
       });
     }
   }
@@ -490,11 +546,13 @@ export default function ClientDashboardPage() {
       !displayData.engagementFunnel &&
       !displayData.conversationFunnel &&
       !displayData.campaignLeaderboard &&
-      !displayData.replyTrend &&
-      !displayData.multichannelFunnel &&
       !displayData.channelComparison &&
       !displayData.weeklyTrend &&
-      !displayData.leadFunnel)) {
+      !displayData.leadFunnel &&
+      !displayData.executiveSummary &&
+      !displayData.performanceFunnel &&
+      !displayData.channelBreakdown &&
+      !displayData.engagementQuality)) {
     return (
       <EmptyState
         icon={AnalyticsIcon}
@@ -611,6 +669,11 @@ export default function ClientDashboardPage() {
                       <FontPreview />
                     ) : isLoadingEmailData ? (
                       <DashboardContentSkeleton />
+                    ) : emailDataError ? (
+                      <ErrorState
+                        title="Configuration Error"
+                        message={emailDataError}
+                      />
                     ) : (
                       <div className="space-y-6">
                         {/* Overview Tab - Show OverviewCard with first 6 metrics, then smaller cards below */}
@@ -774,7 +837,7 @@ export default function ClientDashboardPage() {
                         )}
 
                         {/* Charts - Always 2 columns per row */}
-                        {(displayData.leadFunnel || displayData.conversationFunnel || displayData.campaignLeaderboard || displayData.replyTrend || displayData.multichannelFunnel || displayData.channelComparison || displayData.weeklyTrend) && (
+                        {(displayData.leadFunnel || displayData.conversationFunnel || displayData.campaignLeaderboard || displayData.channelComparison || displayData.weeklyTrend) && (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {displayData.leadFunnel && displayData.leadFunnel.data && displayData.leadFunnel.data.length > 0 && (() => {
                               const chartConfig = {
@@ -789,31 +852,6 @@ export default function ClientDashboardPage() {
                                   <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
                                     <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
                                       <BarChart data={displayData.leadFunnel.data} layout="vertical" margin={{ left: 0, right: 16 }}>
-                                        <XAxis type="number" dataKey="value" hide />
-                                        <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} width={150} tick={{ fill: 'hsl(var(--foreground))', fontSize: 12 }} />
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                                        <Bar dataKey="value" fill="var(--color-value)" radius={5} />
-                                      </BarChart>
-                                    </ChartContainer>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
-                            
-                            {displayData.multichannelFunnel && displayData.multichannelFunnel.data && displayData.multichannelFunnel.data.length > 0 && (() => {
-                              const chartData = displayData.multichannelFunnel.data.map((item: any) => ({ name: item.name, value: item.value }));
-                              const chartConfig = {
-                                value: { label: "Count", color: "hsl(var(--chart-1))" },
-                              } satisfies ChartConfig;
-                              return (
-                                <Card className="@container/card flex flex-col h-full">
-                                  <CardHeader className="relative">
-                                    <CardTitle>{displayData.multichannelFunnel.title}</CardTitle>
-                                    {displayData.multichannelFunnel.description && <CardDescription>{displayData.multichannelFunnel.description}</CardDescription>}
-                                  </CardHeader>
-                                  <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
-                                    <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
-                                      <BarChart data={chartData} layout="vertical" margin={{ left: 0, right: 16 }}>
                                         <XAxis type="number" dataKey="value" hide />
                                         <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} width={150} tick={{ fill: 'hsl(var(--foreground))', fontSize: 12 }} />
                                         <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
@@ -889,10 +927,12 @@ export default function ClientDashboardPage() {
                             {displayData.weeklyTrend && displayData.weeklyTrend.data && displayData.weeklyTrend.data.length > 0 && (() => {
                               const chartConfig = {
                                 emailOpens: { label: "Email Opens", color: "hsl(var(--chart-1))" },
-                                emailClicks: { label: "Email Clicks", color: "hsl(var(--chart-2))" },
-                                linkedInVisits: { label: "LinkedIn Visits", color: "hsl(var(--chart-3))" },
-                                linkedInConnects: { label: "LinkedIn Connects", color: "hsl(var(--chart-4))" },
-                                replies: { label: "Replies", color: "hsl(var(--chart-5))" },
+                                emailClicks: { label: "Email Clicks", color: "hsl(var(--chart-1))" },
+                                linkedInVisits: { label: "LinkedIn Visits", color: "hsl(var(--chart-1))" },
+                                linkedInConnects: { label: "LinkedIn Connects", color: "hsl(var(--chart-1))" },
+                                linkedInConnectionRequests: { label: "LinkedIn Connection Requests", color: "hsl(var(--chart-1))" },
+                                linkedInAccepted: { label: "LinkedIn Accepted", color: "hsl(var(--chart-1))" },
+                                replies: { label: "Replies", color: "hsl(var(--chart-1))" },
                               } satisfies ChartConfig;
                               return (
                                 <Card className="@container/card">
@@ -924,6 +964,14 @@ export default function ClientDashboardPage() {
                                             <stop offset="5%" stopColor="var(--color-replies)" stopOpacity={0.8} />
                                             <stop offset="95%" stopColor="var(--color-replies)" stopOpacity={0.1} />
                                           </linearGradient>
+                                          <linearGradient id="fillLinkedInConnectionRequests" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="var(--color-linkedInConnectionRequests)" stopOpacity={0.8} />
+                                            <stop offset="95%" stopColor="var(--color-linkedInConnectionRequests)" stopOpacity={0.1} />
+                                          </linearGradient>
+                                          <linearGradient id="fillLinkedInAccepted" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="var(--color-linkedInAccepted)" stopOpacity={0.8} />
+                                            <stop offset="95%" stopColor="var(--color-linkedInAccepted)" stopOpacity={0.1} />
+                                          </linearGradient>
                                         </defs>
                                         <CartesianGrid vertical={false} />
                                         <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} />
@@ -933,54 +981,10 @@ export default function ClientDashboardPage() {
                                         <Area type="natural" dataKey="emailClicks" name="emailClicks" stackId="1" stroke="var(--color-emailClicks)" fill="url(#fillEmailClicks)" />
                                         <Area type="natural" dataKey="linkedInVisits" name="linkedInVisits" stackId="1" stroke="var(--color-linkedInVisits)" fill="url(#fillLinkedInVisits)" />
                                         <Area type="natural" dataKey="linkedInConnects" name="linkedInConnects" stackId="1" stroke="var(--color-linkedInConnects)" fill="url(#fillLinkedInConnects)" />
+                                        <Area type="natural" dataKey="linkedInConnectionRequests" name="linkedInConnectionRequests" stackId="1" stroke="var(--color-linkedInConnectionRequests)" fill="url(#fillLinkedInConnectionRequests)" />
+                                        <Area type="natural" dataKey="linkedInAccepted" name="linkedInAccepted" stackId="1" stroke="var(--color-linkedInAccepted)" fill="url(#fillLinkedInAccepted)" />
                                         <Area type="natural" dataKey="replies" name="replies" stackId="1" stroke="var(--color-replies)" fill="url(#fillReplies)" />
                                       </AreaChart>
-                                    </ChartContainer>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
-                            
-                            {displayData.replyTrend && displayData.replyTrend.data && displayData.replyTrend.data.length > 0 && (() => {
-                              const chartData = displayData.replyTrend.data.map((item: any) => ({
-                                date: item.name,
-                                avgScore: item.avgScore || 0,
-                              }));
-                              const chartConfig = {
-                                avgScore: { label: "Score", color: "hsl(var(--chart-1))" },
-                              } satisfies ChartConfig;
-                              return (
-                                <Card className="@container/card flex flex-col h-full">
-                                  <CardHeader className="relative">
-                                    <CardTitle>{displayData.replyTrend.title}</CardTitle>
-                                    {displayData.replyTrend.description && <CardDescription>{displayData.replyTrend.description}</CardDescription>}
-                                  </CardHeader>
-                                  <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
-                                    <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
-                                      <LineChart data={chartData}>
-                                        <defs>
-                                          <linearGradient id="fillAvgScore" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-avgScore)" stopOpacity={0.4} />
-                                            <stop offset="95%" stopColor="var(--color-avgScore)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                        </defs>
-                                        <CartesianGrid vertical={false} />
-                                        <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={(value) => {
-                                          if (typeof value === 'string' && value.includes('-')) {
-                                            const date = new Date(value);
-                                            return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                                          }
-                                          return value;
-                                        }} />
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" labelFormatter={(value) => {
-                                          if (typeof value === 'string' && value.includes('-')) {
-                                            return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                                          }
-                                          return value;
-                                        }} />} />
-                                        <Area dataKey="avgScore" type="natural" fill="url(#fillAvgScore)" stroke="none" />
-                                        <Line dataKey="avgScore" type="natural" stroke="var(--color-avgScore)" strokeWidth={2} dot={false} />
-                                      </LineChart>
                                     </ChartContainer>
                                   </CardContent>
                                 </Card>
@@ -990,54 +994,8 @@ export default function ClientDashboardPage() {
                         )}
 
                         {/* Legacy Activity Charts - Only show charts supported by APIs */}
-                        {(displayData.activityTimeline || displayData.campaignPerformance || displayData.engagementMetrics) && (
+                        {(displayData.campaignPerformance || displayData.engagementMetrics) && (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {displayData.activityTimeline && displayData.activityTimeline.data && displayData.activityTimeline.data.length > 0 && (() => {
-                              const chartData = displayData.activityTimeline.data.map((item: any) => ({
-                                date: item.name,
-                                avgScore: item.avgScore || 0,
-                              }));
-                              const chartConfig = {
-                                avgScore: { label: "Score", color: "hsl(var(--chart-1))" },
-                              } satisfies ChartConfig;
-                              return (
-                                <Card className="@container/card flex flex-col h-full">
-                                  <CardHeader className="relative">
-                                    <CardTitle>{displayData.activityTimeline.title}</CardTitle>
-                                    {displayData.activityTimeline.description && <CardDescription>{displayData.activityTimeline.description}</CardDescription>}
-                                  </CardHeader>
-                                  <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
-                                    <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
-                                      <LineChart data={chartData}>
-                                        <defs>
-                                          <linearGradient id="fillActivityAvgScore" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-avgScore)" stopOpacity={0.4} />
-                                            <stop offset="95%" stopColor="var(--color-avgScore)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                        </defs>
-                                        <CartesianGrid vertical={false} />
-                                        <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={(value) => {
-                                          if (typeof value === 'string' && value.includes('-')) {
-                                            const date = new Date(value);
-                                            return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                                          }
-                                          return value;
-                                        }} />
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" labelFormatter={(value) => {
-                                          if (typeof value === 'string' && value.includes('-')) {
-                                            return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                                          }
-                                          return value;
-                                        }} />} />
-                                        <Area dataKey="avgScore" type="natural" fill="url(#fillActivityAvgScore)" stroke="none" />
-                                        <Line dataKey="avgScore" type="natural" stroke="var(--color-avgScore)" strokeWidth={2} dot={false} />
-                                      </LineChart>
-                                    </ChartContainer>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
-                            
                             {displayData.campaignPerformance && (
                               <CampaignPerformanceTable
                                 title={displayData.campaignPerformance.title}

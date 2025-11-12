@@ -22,28 +22,39 @@ const METRIC_ORDER: Record<string, number> = {
   'Active Campaigns': 1,
   'Campaigns': 1,
   
-  // Category 2: Actions Sent
-  'Total Emails Sent': 2,
-  'Emails Sent': 2,
-  'Email Sent': 2,
+  // Category 2: Total Contacted (first metric)
+  'Total Contacted': 2,
   
-  // Category 3: Opens/Open Rate (before conversations)
-  'Open Rate': 3,
-  'Email Opens': 3,
+  // Category 3: Actions Sent
+  'Total Emails Sent': 3,
+  'Emails Sent': 3,
+  'Email Sent': 3,
   
-  // Category 4: User Actions (Conversations, Engagements)
-  'Total Conversations': 4,
-  'Conversations Started': 4,
-  'Conversations': 4,
-  'Total Engagements': 4,
-  'LinkedIn Connections': 4,
+  // Category 4: Opens/Open Rate
+  'Opened or Connected': 4,
+  'Emails Opened': 4,
+  'Open Rate': 4,
+  'Email Opens': 4,
   
-  // Category 5: Replies / Conversions
-  'Positive Replies': 5,
-  'Reply Rate': 5,
-  'Click Rate': 5,
-  'Conversions': 5,
-  'Replies': 5,
+  // Category 5: LinkedIn Accepted
+  'LinkedIn Accepted': 5,
+  'LinkedIn Connections': 5,
+  
+  // Category 6: User Actions (Conversations, Engagements)
+  'Replies': 6,
+  'Total Conversations': 6,
+  'Conversations Started': 6,
+  'Conversations': 6,
+  'Total Engagements': 6,
+  
+  // Category 7: Reply Rate
+  'Reply Rate': 7,
+  
+  // Category 8: Replies / Conversions
+  'Positive Replies': 8,
+  'Click Rate': 8,
+  'Conversions': 8,
+  'Replies': 8,
 };
 
 /**
@@ -60,13 +71,15 @@ function getMetricOrder(title: string): number {
   const lowerTitle = title.toLowerCase();
   
   if (lowerTitle.includes('campaign')) return 1;
-  if (lowerTitle.includes('sent') || lowerTitle.includes('emails sent')) return 2;
-  // Opens/Open Rate come before conversations
-  if (lowerTitle.includes('open rate') || (lowerTitle.includes('open') && !lowerTitle.includes('conversation'))) return 3;
-  if (lowerTitle.includes('conversation') || lowerTitle.includes('engagement') || 
-      lowerTitle.includes('connection')) return 4;
-  if (lowerTitle.includes('reply') || lowerTitle.includes('rate') || 
-      lowerTitle.includes('conversion') || lowerTitle.includes('click rate')) return 5;
+  if (lowerTitle.includes('total contacted')) return 2;
+  if (lowerTitle.includes('sent') || lowerTitle.includes('emails sent')) return 3;
+  if (lowerTitle.includes('opened or connected') || lowerTitle.includes('emails opened') || (lowerTitle.includes('open') && !lowerTitle.includes('conversation') && !lowerTitle.includes('rate'))) return 4;
+  if (lowerTitle.includes('linkedin accepted')) return 5;
+  if (lowerTitle === 'replies' || (lowerTitle.includes('replies') && !lowerTitle.includes('positive') && !lowerTitle.includes('rate'))) return 6;
+  if (lowerTitle.includes('conversation') || lowerTitle.includes('engagement')) return 6;
+  if (lowerTitle.includes('reply rate')) return 7;
+  if (lowerTitle.includes('positive reply') || lowerTitle.includes('reply') || 
+      lowerTitle.includes('conversion') || lowerTitle.includes('click rate')) return 8;
   
   // Unknown metrics go to the end
   return 999;
@@ -85,12 +98,11 @@ export function sortMetrics(metrics: Metric[]): Metric[] {
       return orderA - orderB;
     }
     
-    // Within replies/conversions category, order: Positive Replies, Reply Rate, Click Rate
-    if (orderA === 5 && orderB === 5) {
+    // Within replies/conversions category (8), order: Positive Replies, Click Rate
+    if (orderA === 8 && orderB === 8) {
       const replyOrder: Record<string, number> = {
         'Positive Replies': 1,
-        'Reply Rate': 2,
-        'Click Rate': 3,
+        'Click Rate': 2,
       };
       const aOrder = replyOrder[a.title] || 99;
       const bOrder = replyOrder[b.title] || 99;

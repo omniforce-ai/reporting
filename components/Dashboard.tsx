@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import MetricCard from './MetricCard';
-import GaugeChartCard from './GaugeChartCard';
-import AreaChartCard from './AreaChartCard';
-import LineChartCard from './LineChartCard';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { AnalyticsIcon, CalendarIcon, CheckCircleIcon, ClockIcon, DocumentTextIcon, DownloadIcon, InboxIcon, SupportIcon, TasksIcon, UserCircleIcon, XCircleIcon } from './icons';
 import type { Agent } from '../types';
 
@@ -202,31 +202,193 @@ const Dashboard: React.FC = () => {
         
         {/* Chart Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-           <GaugeChartCard 
-              title={agentData.completionRate.title}
-              percentage={agentData.completionRate.percentage}
-              icon={agentData.completionRate.icon}
-           />
-           <GaugeChartCard 
-              title={agentData.feedbackScore.title}
-              percentage={agentData.feedbackScore.percentage}
-              positiveCount={agentData.feedbackScore.positiveCount}
-              negativeCount={agentData.feedbackScore.negativeCount}
-              icon={agentData.feedbackScore.icon}
-          />
+          {(() => {
+            const normalizedPercentage = Math.max(0, Math.min(100, Number(agentData.completionRate.percentage) || 0));
+            const gaugeData = [
+              { name: 'value', value: normalizedPercentage },
+              { name: 'remaining', value: 100 - normalizedPercentage },
+            ];
+            const gaugeConfig = {
+              value: { label: "Value", color: "hsl(var(--chart-1))" },
+              remaining: { label: "Remaining", color: "hsl(var(--muted))" },
+            } satisfies ChartConfig;
+            return (
+              <Card className="@container/card flex flex-col h-full">
+                <CardHeader className="relative">
+                  <CardTitle>{agentData.completionRate.title}</CardTitle>
+                </CardHeader>
+                <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col justify-center">
+                  <div className="relative h-[120px] flex-shrink-0">
+                    <ChartContainer config={gaugeConfig} className="h-full w-full">
+                      <PieChart>
+                        <Pie
+                          data={gaugeData}
+                          cx="50%"
+                          cy="100%"
+                          startAngle={180}
+                          endAngle={0}
+                          innerRadius={60}
+                          outerRadius={80}
+                          dataKey="value"
+                          stroke="none"
+                          paddingAngle={0}
+                          cornerRadius={12}
+                        >
+                          {gaugeData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={index === 0 ? 'var(--color-value)' : 'var(--color-remaining)'} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ChartContainer>
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none pb-12">
+                      <div className="text-center">
+                        <span className="text-3xl font-bold tabular-nums">{normalizedPercentage.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+          {(() => {
+            const normalizedPercentage = Math.max(0, Math.min(100, Number(agentData.feedbackScore.percentage) || 0));
+            const gaugeData = [
+              { name: 'value', value: normalizedPercentage },
+              { name: 'remaining', value: 100 - normalizedPercentage },
+            ];
+            const gaugeConfig = {
+              value: { label: "Value", color: "hsl(var(--chart-1))" },
+              remaining: { label: "Remaining", color: "hsl(var(--muted))" },
+            } satisfies ChartConfig;
+            return (
+              <Card className="@container/card flex flex-col h-full">
+                <CardHeader className="relative">
+                  <CardTitle>{agentData.feedbackScore.title}</CardTitle>
+                </CardHeader>
+                <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col justify-center">
+                  <div className="relative h-[120px] flex-shrink-0">
+                    <ChartContainer config={gaugeConfig} className="h-full w-full">
+                      <PieChart>
+                        <Pie
+                          data={gaugeData}
+                          cx="50%"
+                          cy="100%"
+                          startAngle={180}
+                          endAngle={0}
+                          innerRadius={60}
+                          outerRadius={80}
+                          dataKey="value"
+                          stroke="none"
+                          paddingAngle={0}
+                          cornerRadius={12}
+                        >
+                          {gaugeData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={index === 0 ? 'var(--color-value)' : 'var(--color-remaining)'} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ChartContainer>
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none pb-12">
+                      <div className="text-center">
+                        <span className="text-3xl font-bold tabular-nums">{normalizedPercentage.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                  {agentData.feedbackScore.positiveCount !== undefined && agentData.feedbackScore.negativeCount !== undefined && (
+                    <div className="flex justify-center items-center gap-6 pt-6">
+                      <div className="flex items-center gap-2.5 text-sm font-medium text-muted-foreground">
+                        <div className="w-2.5 h-2.5 rounded-full bg-primary"></div>
+                        <span>Positive</span>
+                        <span className="font-bold text-foreground">{agentData.feedbackScore.positiveCount}</span>
+                      </div>
+                      <div className="flex items-center gap-2.5 text-sm font-medium text-muted-foreground">
+                        <div className="w-2.5 h-2.5 rounded-full bg-muted"></div>
+                        <span>Negative</span>
+                        <span className="font-bold text-foreground">{agentData.feedbackScore.negativeCount}</span>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <LineChartCard 
-            title={agentData.evaluationHistory.title}
-            description={agentData.evaluationHistory.description}
-            data={agentData.evaluationHistory.data}
-          />
-          <AreaChartCard 
-            title={agentData.tasksHistory.title}
-            description={agentData.tasksHistory.description}
-            data={agentData.tasksHistory.data}
-          />
+          {(() => {
+            const chartData = agentData.evaluationHistory.data.map((item: any) => ({
+              date: item.name,
+              avgScore: item.avgScore || 0,
+            }));
+            const chartConfig = {
+              avgScore: { label: "Score", color: "hsl(var(--chart-1))" },
+            } satisfies ChartConfig;
+            return (
+              <Card className="@container/card flex flex-col h-full">
+                <CardHeader className="relative">
+                  <CardTitle>{agentData.evaluationHistory.title}</CardTitle>
+                  {agentData.evaluationHistory.description && <CardDescription>{agentData.evaluationHistory.description}</CardDescription>}
+                </CardHeader>
+                <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
+                  <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
+                    <LineChart data={chartData}>
+                      <defs>
+                        <linearGradient id="fillEvalAvgScore" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--color-avgScore)" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="var(--color-avgScore)" stopOpacity={0.1} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} />
+                      <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+                      <Area dataKey="avgScore" type="natural" fill="url(#fillEvalAvgScore)" stroke="none" />
+                      <Line dataKey="avgScore" type="natural" stroke="var(--color-avgScore)" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            );
+          })()}
+          {(() => {
+            const chartData = agentData.tasksHistory.data.map((item: any) => ({
+              date: item.name,
+              completed: item.completed || 0,
+              failed: item.failed || 0,
+            }));
+            const chartConfig = {
+              completed: { label: "Completed", color: "hsl(var(--chart-1))" },
+              failed: { label: "Failed", color: "hsl(var(--chart-2))" },
+            } satisfies ChartConfig;
+            return (
+              <Card className="@container/card flex flex-col h-full">
+                <CardHeader className="relative">
+                  <CardTitle>{agentData.tasksHistory.title}</CardTitle>
+                  {agentData.tasksHistory.description && <CardDescription>{agentData.tasksHistory.description}</CardDescription>}
+                </CardHeader>
+                <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
+                  <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="fillCompleted" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--color-completed)" stopOpacity={1.0} />
+                          <stop offset="95%" stopColor="var(--color-completed)" stopOpacity={0.1} />
+                        </linearGradient>
+                        <linearGradient id="fillFailed" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--color-failed)" stopOpacity={0.8} />
+                          <stop offset="95%" stopColor="var(--color-failed)" stopOpacity={0.1} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} />
+                      <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+                      <Area dataKey="failed" type="natural" fill="url(#fillFailed)" stroke="var(--color-failed)" stackId="a" />
+                      <Area dataKey="completed" type="natural" fill="url(#fillCompleted)" stroke="var(--color-completed)" stackId="a" />
+                    </AreaChart>
+                  </ChartContainer>
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
       </main>
     </div>
