@@ -209,11 +209,21 @@ export async function GET(request: Request) {
             const metrics = data.metrics || [];
             const totalContactedMetric = metrics.find((m: any) => m.title === 'Total Contacted');
             const emailsOpenedMetric = metrics.find((m: any) => m.title === 'Opened or Connected');
+            const replyRateMetric = metrics.find((m: any) => m.title === 'Reply Rate');
             const positiveRepliesMetric = metrics.find((m: any) => m.title === 'Positive Replies');
             
-            acc.emailsSent += parseInt(totalContactedMetric?.value?.replace(/,/g, '') || '0', 10);
+            const totalContacted = parseInt(totalContactedMetric?.value?.replace(/,/g, '') || '0', 10);
+            acc.emailsSent += totalContacted;
             acc.emailsOpened += parseInt(emailsOpenedMetric?.value?.replace(/,/g, '') || '0', 10);
             acc.positiveReplies += parseInt(positiveRepliesMetric?.value?.replace(/,/g, '') || '0', 10);
+            
+            // Extract replies from executiveSummary or calculate from reply rate
+            if (data.executiveSummary?.totalReplies !== undefined) {
+              acc.replies += data.executiveSummary.totalReplies;
+            } else if (replyRateMetric && totalContacted > 0) {
+              const replyRateValue = parseFloat(replyRateMetric.value?.replace('%', '') || '0');
+              acc.replies += Math.round((replyRateValue / 100) * totalContacted);
+            }
           }
           
           return acc;
@@ -238,7 +248,15 @@ export async function GET(request: Request) {
           const positiveRepliesMetric = metrics.find((m: any) => m.title === 'Positive Replies');
           const campaignsMetric = metrics.find((m: any) => m.title === 'Active Campaigns');
           
-          acc.replies += parseInt(conversationsMetric?.value?.replace(/,/g, '') || '0', 10);
+          const smartleadReplies = parseInt(conversationsMetric?.value?.replace(/,/g, '') || '0', 10);
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[Summary API] Smartlead data:`, {
+              conversationsMetric: conversationsMetric?.value,
+              parsedReplies: smartleadReplies,
+              positiveReplies: positiveRepliesMetric?.value,
+            });
+          }
+          acc.replies += smartleadReplies;
           acc.positiveReplies += parseInt(positiveRepliesMetric?.value?.replace(/,/g, '') || '0', 10);
           acc.campaigns += parseInt(campaignsMetric?.value?.replace(/,/g, '') || '0', 10);
           
@@ -265,6 +283,28 @@ export async function GET(request: Request) {
           acc.emailsOpened += parseInt(emailsOpenedMetric?.value?.replace(/,/g, '') || '0', 10);
           acc.positiveReplies += parseInt(positiveRepliesMetric?.value?.replace(/,/g, '') || '0', 10);
           
+          // Extract replies from executiveSummary - use actual count, not calculated from rate
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[Summary API] Lemlist data:`, {
+              executiveSummary: data.executiveSummary,
+              totalReplies: data.executiveSummary?.totalReplies,
+              replyRateMetric: replyRateMetric?.value,
+              totalContacted,
+            });
+          }
+          if (data.executiveSummary?.totalReplies !== undefined) {
+            acc.replies += data.executiveSummary.totalReplies;
+          }
+          // Don't calculate replies from reply rate - use actual reply count from API
+          
+          // Store weekly trend data if available
+          if (data.weeklyTrend?.data) {
+            if (!acc.weeklyTrends) {
+              acc.weeklyTrends = [];
+            }
+            acc.weeklyTrends.push(data.weeklyTrend);
+          }
+          
         }
         
         return acc;
@@ -276,6 +316,7 @@ export async function GET(request: Request) {
         campaigns: 0,
         funnelData: null as any,
         campaignLeaderboards: [] as any[],
+        weeklyTrends: [] as any[],
       });
 
       const previousReplies = previousPeriodTotals?.replies || 0;
@@ -286,7 +327,20 @@ export async function GET(request: Request) {
       const totalContacted = aggregated.emailsSent;
       const emailsOpened = aggregated.emailsOpened;
       const totalReplies = aggregated.replies;
-      const replyRate = totalContacted > 0 ? calculatePercentage(totalReplies, totalContacted) : 0;
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Summary API] Aggregated totals:`, {
+          totalReplies,
+          totalContacted,
+          emailsOpened,
+          positiveReplies: aggregated.positiveReplies,
+        });
+      }
+      
+      // Ensure reply rate is 0 when there are no replies
+      const replyRate = totalContacted > 0 && totalReplies > 0 
+        ? calculatePercentage(totalReplies, totalContacted) 
+        : 0;
       
       const previousTotalContacted = previousPeriodTotals?.emailsSent || 0;
       const previousEmailsOpened = previousPeriodTotals?.emailsOpened || 0;
@@ -335,6 +389,81 @@ export async function GET(request: Request) {
         .sort((a: any, b: any) => (b.value || 0) - (a.value || 0))
         .slice(0, 10);
 
+      // Merge weekly trends from all sources
+      let mergedWeeklyTrend: any = null;
+      if (aggregated.weeklyTrends && aggregated.weeklyTrends.length > 0) {
+        const weekMap = new Map<string, any>();
+        
+        aggregated.weeklyTrends.forEach((trend: any) => {
+          if (trend.data && Array.isArray(trend.data)) {
+            trend.data.forEach((week: any) => {
+              const weekName = week.name;
+              if (!weekMap.has(weekName)) {
+                weekMap.set(weekName, {
+                  name: weekName,
+                  replies: 0,
+                  emailOpens: 0,
+                  emailClicks: 0,
+                  linkedInVisits: 0,
+                  linkedInConnects: 0,
+                  linkedInConnectionRequests: 0,
+                  linkedInAccepted: 0,
+                });
+              }
+              const existing = weekMap.get(weekName)!;
+              existing.replies += week.replies || 0;
+              existing.emailOpens += week.emailOpens || 0;
+              existing.emailClicks += week.emailClicks || 0;
+              existing.linkedInVisits += week.linkedInVisits || 0;
+              existing.linkedInConnects += week.linkedInConnects || 0;
+              existing.linkedInConnectionRequests += week.linkedInConnectionRequests || 0;
+              existing.linkedInAccepted += week.linkedInAccepted || 0;
+            });
+          }
+        });
+        
+        if (weekMap.size > 0) {
+          mergedWeeklyTrend = {
+            title: 'Weekly Activity Trend',
+            description: 'Email and LinkedIn activities over time',
+            data: Array.from(weekMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
+          };
+        }
+      }
+
+      // Generate reply rate and replies trend charts
+      let replyRateTrend: any = null;
+      let repliesTrend: any = null;
+      
+      if (mergedWeeklyTrend && mergedWeeklyTrend.data && mergedWeeklyTrend.data.length > 0) {
+        // Calculate reply rate for each week (need contacted data)
+        // For now, create a simple trend based on replies count
+        repliesTrend = {
+          title: 'Replies Trend',
+          description: 'Total replies over time',
+          data: mergedWeeklyTrend.data.map((week: any) => ({
+            name: week.name,
+            Replies: week.replies || 0,
+          })),
+        };
+        
+        // Reply rate trend - we'll calculate based on available data
+        // If we have weekly contacted data, we can calculate rate, otherwise show replies
+        replyRateTrend = {
+          title: 'Reply Rate Trend',
+          description: 'Reply rate over time',
+          data: mergedWeeklyTrend.data.map((week: any) => {
+            // Calculate rate if we have contacted data, otherwise use replies as proxy
+            const contacted = week.emailOpens + week.linkedInConnects || 1;
+            const rate = contacted > 0 ? calculatePercentage(week.replies || 0, contacted) : 0;
+            return {
+              name: week.name,
+              'Reply Rate': Math.round(rate * 10) / 10,
+            };
+          }),
+        };
+      }
+
       const dashboardData = {
         metrics: metrics,
         conversationFunnel: aggregated.funnelData || null,
@@ -344,6 +473,9 @@ export async function GET(request: Request) {
           data: combinedCampaignLeaderboard,
           valueLabel: 'Replies',
         } : null,
+        weeklyTrend: mergedWeeklyTrend,
+        replyRateTrend: replyRateTrend,
+        repliesTrend: repliesTrend,
       };
 
       if (process.env.NODE_ENV === 'development') {

@@ -354,8 +354,11 @@ function calculateMetrics(activities: Activity[]): Metrics {
   emailClicked.forEach(id => clicked.add(id));
   linkedinAccepted.forEach(id => clicked.add(id));
 
-  // Calculate totals - totalPositive should be union of all interested leads
-  const totalReplies = emailReplied.size + linkedinReplied.size;
+  // Calculate totals - totalReplies should be union of all unique leads who replied (not sum, to avoid double-counting)
+  const allReplied = new Set<string>();
+  emailReplied.forEach(id => allReplied.add(id));
+  linkedinReplied.forEach(id => allReplied.add(id));
+  const totalReplies = allReplied.size;
   const allInterested = new Set<string>();
   emailPositive.forEach(id => allInterested.add(id));
   linkedinPositive.forEach(id => allInterested.add(id));
@@ -367,6 +370,11 @@ function calculateMetrics(activities: Activity[]): Metrics {
       if (a.email) allInterested.add(a.email);
     });
   const totalPositive = allInterested.size;
+
+  // Ensure reply rate is 0 when there are no replies
+  const calculatedReplyRate = totalContacted > 0 && totalReplies > 0 
+    ? calculatePercentage(totalReplies, totalContacted) 
+    : 0;
 
   return {
     totalContacted,
@@ -395,7 +403,7 @@ function calculateMetrics(activities: Activity[]): Metrics {
     },
     totalReplies,
     totalPositive,
-    overallReplyRate: totalContacted > 0 ? calculatePercentage(totalReplies, totalContacted) : 0,
+    overallReplyRate: calculatedReplyRate,
     bounced: bounced.size,
     clicked: clicked.size,
   };
@@ -500,7 +508,7 @@ export async function GET(request: Request) {
         linkedInVisits: number;
         linkedInConnects: number;
         linkedInConnectionRequests: number;
-        replies: number;
+        replies: Set<string>; // Changed to Set to count unique leads
       }> = {};
 
       currentActivities.forEach(activity => {
@@ -537,7 +545,7 @@ export async function GET(request: Request) {
               linkedInVisits: 0,
               linkedInConnects: 0,
               linkedInConnectionRequests: 0,
-              replies: 0,
+              replies: new Set<string>(), // Changed to Set to count unique leads
             };
           }
 
@@ -552,7 +560,9 @@ export async function GET(request: Request) {
           } else if (activity.type === 'linkedinInviteAccepted') {
             activitiesByWeek[weekKey].linkedInConnects++;
           } else if (activity.type === 'emailsReplied' || activity.type === 'emailReplied' || activity.type === 'linkedinReplied') {
-            activitiesByWeek[weekKey].replies++;
+            // Count unique leads who replied, not all reply events
+            if (activity.leadId) activitiesByWeek[weekKey].replies.add(activity.leadId);
+            if (activity.email) activitiesByWeek[weekKey].replies.add(activity.email);
           }
         }
       });
@@ -579,7 +589,7 @@ export async function GET(request: Request) {
           linkedInConnects: activitiesByWeek[week].linkedInConnects,
           linkedInConnectionRequests: activitiesByWeek[week].linkedInConnectionRequests,
           linkedInAccepted: activitiesByWeek[week].linkedInConnects,
-          replies: activitiesByWeek[week].replies,
+          replies: activitiesByWeek[week].replies.size, // Count unique leads, not all events
         }));
 
       const metrics = sortMetrics([
@@ -662,6 +672,16 @@ export async function GET(request: Request) {
       const interested = currentMetrics.totalPositive;
       const linkedinAccepted = currentMetrics.linkedin.connectionsAccepted;
 
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Lemlist API] Final metrics:`, {
+          replied,
+          contacted,
+          emailReplies: currentMetrics.email.replies,
+          linkedinReplies: currentMetrics.linkedin.replies,
+          totalReplies: currentMetrics.totalReplies,
+        });
+      }
+
       const replyRate = contacted > 0 ? calculatePercentage(replied, contacted) : 0;
       const interestedRate = contacted > 0 ? calculatePercentage(interested, contacted) : 0;
 
@@ -670,6 +690,7 @@ export async function GET(request: Request) {
         emailsOpened: opened,
         linkedinAccepted: linkedinAccepted,
         replyRate: replyRate,
+        totalReplies: replied,
         positiveReplies: interested,
       };
 

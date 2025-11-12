@@ -5,7 +5,7 @@ import OverviewCard from '@/components/OverviewCard';
 import CampaignsTable from '@/components/CampaignsTable';
 import CampaignPerformanceTable from '@/components/CampaignPerformanceTable';
 import FontPreview from '@/components/FontPreview';
-import { DashboardSkeleton, DashboardContentSkeleton } from '@/components/LoadingSkeleton';
+import { DashboardSkeleton, MetricCardSkeleton } from '@/components/LoadingSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
 import { AnalyticsIcon, CheckCircleIcon, ClockIcon, MailIcon, TasksIcon, ThumbsUpIcon, XCircleIcon } from '@/components/icons';
@@ -18,7 +18,7 @@ import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLe
 import { BarChart, Bar, AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid } from 'recharts';
 import type { FeatureDefinition } from '@/lib/config/features';
 import { getAllFeatures, getFeatureDefinition } from '@/lib/config/features';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 
 export default function ClientDashboardPage() {
@@ -26,16 +26,6 @@ export default function ClientDashboardPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const clientname = params?.clientname as string | undefined;
-  
-  // Safety check - if no clientname, show error
-  if (!clientname) {
-    return (
-      <ErrorState
-        title="Client Not Found"
-        message="Unable to determine client from URL. Please check the URL and try again."
-      />
-    );
-  }
   
   // Get tab from URL or use null (will be set from enabled features)
   const tabFromUrl = searchParams.get('tab');
@@ -48,7 +38,8 @@ export default function ClientDashboardPage() {
   const [clientInfo, setClientInfo] = useState<{ subdomain: string; name: string; apiSource: 'smartlead' | 'lemlist' | null } | null>(null);
   const datePickerRef = useRef<HTMLDivElement | null>(null);
   
-  const getDefaultDateRange = () => {
+  // Memoize date range calculations to avoid recreating on every render
+  const getDefaultDateRange = useCallback(() => {
     const end = new Date();
     const start = new Date();
     start.setDate(start.getDate() - 14);
@@ -56,9 +47,9 @@ export default function ClientDashboardPage() {
       start: start.toISOString().split('T')[0],
       end: end.toISOString().split('T')[0],
     };
-  };
+  }, []);
   
-  const getPresetRange = (preset: string) => {
+  const getPresetRange = useCallback((preset: string) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     let start: Date;
@@ -102,10 +93,10 @@ export default function ClientDashboardPage() {
       start: start.toISOString().split('T')[0],
       end: end.toISOString().split('T')[0],
     };
-  };
+  }, []);
   
   const [selectedPreset, setSelectedPreset] = useState<string>('last14');
-  const [dateRange, setDateRange] = useState(getDefaultDateRange());
+  const [dateRange, setDateRange] = useState(() => getDefaultDateRange());
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
   const presetLabels: Record<string, string> = {
@@ -155,6 +146,7 @@ export default function ClientDashboardPage() {
   };
 
   // Detect if current date range matches a preset
+  // Memoize preset detection to avoid recalculating
   useEffect(() => {
     const presets = ['last7', 'last14', 'last30', 'last90', 'thisMonth', 'lastMonth', 'last3Months', 'last6Months'];
     for (const preset of presets) {
@@ -165,7 +157,7 @@ export default function ClientDashboardPage() {
       }
     }
     setSelectedPreset('');
-  }, [dateRange.start, dateRange.end]);
+  }, [dateRange.start, dateRange.end, getPresetRange]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -328,12 +320,14 @@ export default function ClientDashboardPage() {
             
             const dashboardData = response.data || response;
             if (process.env.NODE_ENV === 'development') {
+              const replyRateMetric = dashboardData?.metrics?.find((m: any) => m.title === 'Reply Rate');
+              const repliesMetric = dashboardData?.metrics?.find((m: any) => m.title === 'Replies');
+              const totalContactedMetric = dashboardData?.metrics?.find((m: any) => m.title === 'Total Contacted');
               console.log('[Dashboard] Overview data received:', {
-                hasData: !!dashboardData,
-                hasMetrics: !!(dashboardData?.metrics),
+                replyRate: replyRateMetric?.value,
+                replies: repliesMetric?.value,
+                totalContacted: totalContactedMetric?.value,
                 metricsCount: dashboardData?.metrics?.length || 0,
-                hasFunnel: !!dashboardData?.conversationFunnel,
-                hasLeaderboard: !!dashboardData?.campaignLeaderboard,
               });
             }
             setEmailData(dashboardData);
@@ -375,6 +369,15 @@ export default function ClientDashboardPage() {
             
             // API returns { data: {...} }, extract the data object
             const dashboardData = response.data || response;
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[Dashboard] ${activeTabId} data received:`, {
+                replyRate: dashboardData?.executiveSummary?.replyRate,
+                totalReplies: dashboardData?.executiveSummary?.totalReplies,
+                totalContacted: dashboardData?.executiveSummary?.totalContacted,
+                overallReplyRate: dashboardData?.overallReplyRate,
+                hasMetrics: !!(dashboardData?.metrics?.length),
+              });
+            }
             setEmailData(dashboardData);
             setEmailDataError(null);
             setIsLoadingEmailData(false);
@@ -399,166 +402,75 @@ export default function ClientDashboardPage() {
           abortController.abort();
         };
       } else {
-        // Only clear data if we had data before (not on initial load)
-        if (emailData !== null) {
-          setEmailData(null);
-          setIsLoadingEmailData(false);
-        }
+        // Clear data when switching to a tab that doesn't need data (e.g., fonts)
+        setEmailData(null);
+        setIsLoadingEmailData(false);
       }
     }
   }, [activeTabId, clientInfo?.subdomain, dateRange.start, dateRange.end]);
 
-  if (loading) {
-    return <DashboardSkeleton />;
-  }
-
-  if (enabledFeatures.length === 0) {
-    return (
-      <EmptyState
-        icon={AnalyticsIcon}
-        title="No Features Enabled"
-        description="No features are currently enabled for this client. Contact your administrator to enable features."
-      />
-    );
-  }
-
-  // Transform API data to match expected format
-  let displayData = null;
-  
-  if (emailData) {
+  // Memoize data transformation to avoid recalculating on every render
+  // MUST be called before any conditional returns (Rules of Hooks)
+  const displayData = useMemo(() => {
+    if (!emailData) return null;
+    
+    // Map metrics with default icons
+    const metrics = (emailData.metrics || []).map((metric: any) => ({
+      ...metric,
+      icon: metric.icon || CheckCircleIcon,
+    }));
+    
+    // Copy all other properties directly (no need for individual if checks)
     const transformed: any = {
-      metrics: (emailData.metrics || []).map((metric: any) => ({
-        ...metric,
-        icon: metric.icon || CheckCircleIcon,
-      })),
+      metrics,
+      ...(emailData.executiveSummary && { executiveSummary: emailData.executiveSummary }),
+      ...(emailData.performanceFunnel && { performanceFunnel: emailData.performanceFunnel }),
+      ...(emailData.channelBreakdown && { channelBreakdown: emailData.channelBreakdown }),
+      ...(emailData.engagementQuality && { engagementQuality: emailData.engagementQuality }),
+      ...(emailData.channelComparison && { channelComparison: emailData.channelComparison }),
+      ...(emailData.campaignLeaderboard && { campaignLeaderboard: emailData.campaignLeaderboard }),
+      ...(emailData.weeklyTrend && { weeklyTrend: emailData.weeklyTrend }),
+      ...(emailData.leadFunnel && { leadFunnel: emailData.leadFunnel }),
+      ...(emailData.conversationFunnel && { conversationFunnel: emailData.conversationFunnel }),
+      ...(emailData.completionRate && { completionRate: emailData.completionRate }),
+      ...(emailData.clickRateGauge && { clickRateGauge: emailData.clickRateGauge }),
+      ...(emailData.activityTimeline && { activityTimeline: emailData.activityTimeline }),
+      ...(emailData.campaignPerformance && { campaignPerformance: emailData.campaignPerformance }),
+      ...(emailData.engagementMetrics && { engagementMetrics: emailData.engagementMetrics }),
+      ...(emailData.engagementFunnel && { engagementFunnel: emailData.engagementFunnel }),
+      ...(emailData.multichannelFunnel && { multichannelFunnel: emailData.multichannelFunnel }),
+      ...(emailData.campaigns && { campaigns: emailData.campaigns }),
     };
     
-    if (emailData.executiveSummary) {
-      transformed.executiveSummary = emailData.executiveSummary;
-    }
-    
-    if (emailData.performanceFunnel) {
-      transformed.performanceFunnel = emailData.performanceFunnel;
-    }
-    
-    if (emailData.channelBreakdown) {
-      transformed.channelBreakdown = emailData.channelBreakdown;
-    }
-    
-    if (emailData.engagementQuality) {
-      transformed.engagementQuality = emailData.engagementQuality;
-    }
-    
-    if (emailData.channelComparison) {
-      transformed.channelComparison = emailData.channelComparison;
-    }
-    
-    if (emailData.campaignLeaderboard) {
-      transformed.campaignLeaderboard = emailData.campaignLeaderboard;
-    }
-    
-    if (emailData.weeklyTrend) {
-      transformed.weeklyTrend = emailData.weeklyTrend;
-    }
-    
-    if (emailData.leadFunnel) {
-      transformed.leadFunnel = emailData.leadFunnel;
-    }
-    
-    if (emailData.conversationFunnel) {
-      transformed.conversationFunnel = emailData.conversationFunnel;
-    }
-    
     // Only set displayData if it has actual content
-    const hasMetrics = transformed.metrics && transformed.metrics.length > 0;
-    const hasCharts = transformed.completionRate || 
-                     transformed.clickRateGauge || 
-                     transformed.activityTimeline || 
-                     transformed.campaignPerformance || 
-                     transformed.engagementMetrics || 
-                     transformed.engagementFunnel ||
-                     transformed.conversationFunnel ||
-                     transformed.campaignLeaderboard ||
-                     transformed.multichannelFunnel ||
-                     transformed.channelComparison ||
-                     transformed.weeklyTrend ||
-                     transformed.leadFunnel ||
-                     transformed.executiveSummary ||
-                     transformed.performanceFunnel ||
-                     transformed.channelBreakdown ||
-                     transformed.engagementQuality;
+    const hasMetrics = metrics.length > 0;
+    const hasCharts = !!(transformed.completionRate || transformed.clickRateGauge || 
+                        transformed.activityTimeline || transformed.campaignPerformance || 
+                        transformed.engagementMetrics || transformed.engagementFunnel ||
+                        transformed.conversationFunnel || transformed.campaignLeaderboard ||
+                        transformed.multichannelFunnel || transformed.channelComparison ||
+                        transformed.weeklyTrend || transformed.leadFunnel ||
+                        transformed.executiveSummary || transformed.performanceFunnel ||
+                        transformed.channelBreakdown || transformed.engagementQuality);
     
     // For lemlist tab, always set displayData if we have the report structure (even with zeros)
     const isLemlistTab = activeTabId === 'lemlist';
-    const hasLemlistReport = transformed.executiveSummary || 
-                             transformed.performanceFunnel || 
-                             transformed.channelBreakdown || 
-                             transformed.engagementQuality;
+    const hasLemlistReport = !!(transformed.executiveSummary || transformed.performanceFunnel || 
+                                transformed.channelBreakdown || transformed.engagementQuality);
     
     if (hasMetrics || hasCharts || (isLemlistTab && hasLemlistReport)) {
-      displayData = transformed;
-    } else {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[Dashboard] No display data - missing metrics and charts:', {
-          hasMetrics,
-          hasCharts,
-          isLemlistTab,
-          hasLemlistReport,
-          transformedKeys: Object.keys(transformed),
-          executiveSummary: transformed.executiveSummary,
-          performanceFunnel: transformed.performanceFunnel,
-        channelBreakdown: transformed.channelBreakdown,
-        engagementQuality: transformed.engagementQuality,
-      });
-      }
+      return transformed;
     }
-  }
+    
+    return null;
+  }, [emailData, activeTabId]);
 
-  if (isLoadingEmailData) {
-    return (
-      <div className="flex flex-1 flex-col">
-        <div className="@container/main flex flex-1 flex-col gap-2">
-          <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
-            <div className="px-4 lg:px-6">
-              <DashboardContentSkeleton />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Check if displayData exists and has content
-  if (!displayData || (!displayData.metrics?.length && 
-      !displayData.completionRate && 
-      !displayData.clickRateGauge && 
-      !displayData.activityTimeline && 
-      !displayData.campaignPerformance && 
-      !displayData.engagementMetrics && 
-      !displayData.engagementFunnel &&
-      !displayData.conversationFunnel &&
-      !displayData.campaignLeaderboard &&
-      !displayData.channelComparison &&
-      !displayData.weeklyTrend &&
-      !displayData.leadFunnel &&
-      !displayData.executiveSummary &&
-      !displayData.performanceFunnel &&
-      !displayData.channelBreakdown &&
-      !displayData.engagementQuality)) {
-    return (
-      <EmptyState
-        icon={AnalyticsIcon}
-        title="No Data Available"
-        description="No data found for the selected date range. Try selecting a different time period."
-      />
-    );
-  }
-
+  // Always show date picker and tabs, even while loading
   return (
     <div className="flex flex-1 flex-col">
       <div className="@container/main flex flex-1 flex-col gap-2">
         <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
-          {/* Header with Date Range */}
+          {/* Header with Date Range - Always visible */}
           <div className="px-4 lg:px-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -659,8 +571,6 @@ export default function ClientDashboardPage() {
                   <TabsContent key={feature.id} value={feature.id} className="mt-4">
                     {feature.id === 'fonts' ? (
                       <FontPreview />
-                    ) : isLoadingEmailData ? (
-                      <DashboardContentSkeleton />
                     ) : emailDataError ? (
                       <ErrorState
                         title="Configuration Error"
@@ -668,52 +578,79 @@ export default function ClientDashboardPage() {
                       />
                     ) : (
                       <div className="space-y-6">
-                        {/* Overview Tab - Show OverviewCard with first 6 metrics, then smaller cards below */}
-                        {feature.id === 'overview' && displayData.metrics && displayData.metrics.length > 0 && (
+                        {/* Show loading indicator and skeletons for metrics while loading */}
+                        {isLoadingEmailData && !displayData?.metrics?.length ? (
                           <>
-                            {/* Overview Card with first 6 metrics */}
-                            <OverviewCard
-                              metrics={displayData.metrics.slice(0, 6).map((metric: any) => ({
-                                title: metric.title,
-                                value: metric.value,
-                                comparisonText: metric.comparisonText,
-                              }))}
-                            />
+                            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-4">
+                              <div className="h-4 w-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                              <span>Loading metrics...</span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                              {[1, 2, 3, 4, 5].map((i) => (
+                                <MetricCardSkeleton key={i} />
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            {/* Overview Tab - Show OverviewCard with first 6 metrics, then smaller cards below */}
+                            {feature.id === 'overview' && displayData?.metrics && displayData.metrics.length > 0 && (
+                              <>
+                                {/* Overview Card with first 6 metrics */}
+                                <OverviewCard
+                                  metrics={displayData.metrics.slice(0, 6).map((metric: any) => ({
+                                    title: metric.title,
+                                    value: metric.value,
+                                    comparisonText: metric.comparisonText,
+                                  }))}
+                                />
+                                
+                                {/* Remaining metrics as smaller cards below */}
+                                {displayData.metrics.length > 6 && (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {displayData.metrics.slice(6).map((metric: any, index: number) => (
+                                      <MetricCard
+                                        key={index + 6}
+                                        title={metric.title}
+                                        value={metric.value}
+                                        comparisonText={metric.comparisonText}
+                                        icon={metric.icon || CheckCircleIcon}
+                                      />
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            )}
                             
-                            {/* Remaining metrics as smaller cards below */}
-                            {displayData.metrics.length > 6 && (
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                {displayData.metrics.slice(6).map((metric: any, index: number) => (
-                                  <MetricCard
-                                    key={index + 6}
-                                    title={metric.title}
-                                    value={metric.value}
-                                    comparisonText={metric.comparisonText}
-                                    icon={metric.icon || CheckCircleIcon}
+                            {/* Other tabs - Show all metrics as cards with progressive loading */}
+                            {feature.id !== 'overview' && (
+                              <>
+                                {displayData?.metrics && displayData.metrics.length > 0 ? (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {displayData.metrics.map((metric: any, index: number) => (
+                                      <MetricCard
+                                        key={index}
+                                        title={metric.title}
+                                        value={metric.value}
+                                        comparisonText={metric.comparisonText}
+                                        icon={metric.icon || CheckCircleIcon}
+                                      />
+                                    ))}
+                                  </div>
+                                ) : !isLoadingEmailData && (
+                                  <EmptyState
+                                    icon={AnalyticsIcon}
+                                    title="No Data Available"
+                                    description="No data found for the selected date range. Try selecting a different time period."
                                   />
-                                ))}
-                              </div>
+                                )}
+                              </>
                             )}
                           </>
                         )}
-                        
-                        {/* Other tabs - Show all metrics as cards */}
-                        {feature.id !== 'overview' && displayData.metrics && displayData.metrics.length > 0 && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                            {displayData.metrics.map((metric: any, index: number) => (
-                              <MetricCard
-                                key={index}
-                                title={metric.title}
-                                value={metric.value}
-                                comparisonText={metric.comparisonText}
-                                icon={metric.icon || CheckCircleIcon}
-                              />
-                            ))}
-                          </div>
-                        )}
 
                         {/* Charts Grid - Only show gauge charts that are supported by APIs */}
-                        {(displayData.completionRate || displayData.clickRateGauge) && (
+                        {!isLoadingEmailData && displayData && (displayData.completionRate || displayData.clickRateGauge) && (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {displayData.completionRate && (() => {
                               const normalizedPercentage = Math.max(0, Math.min(100, Number(displayData.completionRate.percentage) || 0));
@@ -829,7 +766,7 @@ export default function ClientDashboardPage() {
                         )}
 
                         {/* Charts - Always 2 columns per row */}
-                        {(displayData.leadFunnel || displayData.conversationFunnel || displayData.campaignLeaderboard || displayData.channelComparison || displayData.weeklyTrend) && (
+                        {!isLoadingEmailData && displayData && (displayData.leadFunnel || displayData.conversationFunnel || displayData.campaignLeaderboard || displayData.channelComparison || displayData.weeklyTrend) && (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {displayData.leadFunnel && displayData.leadFunnel.data && displayData.leadFunnel.data.length > 0 && (() => {
                               const chartConfig = {
@@ -986,7 +923,7 @@ export default function ClientDashboardPage() {
                         )}
 
                         {/* Legacy Activity Charts - Only show charts supported by APIs */}
-                        {(displayData.campaignPerformance || displayData.engagementMetrics) && (
+                        {!isLoadingEmailData && displayData && (displayData.campaignPerformance || displayData.engagementMetrics) && (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             {displayData.campaignPerformance && (
                               <CampaignPerformanceTable
@@ -1046,7 +983,7 @@ export default function ClientDashboardPage() {
                         )}
 
                         {/* Campaigns Table */}
-                        {displayData.campaigns && displayData.campaigns.length > 0 && (
+                        {!isLoadingEmailData && displayData && displayData.campaigns && displayData.campaigns.length > 0 && (
                           <CampaignsTable 
                             campaigns={displayData.campaigns}
                             title="Campaigns"
