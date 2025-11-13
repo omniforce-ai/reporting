@@ -899,7 +899,7 @@ export default function ClientDashboardPage() {
                                                 dataKey="value" 
                                                 position="right" 
                                                 className="fill-foreground text-sm font-medium"
-                                                formatter={(value: number) => value.toLocaleString()}
+                                                formatter={(value: any) => typeof value === 'number' ? value.toLocaleString() : String(value)}
                                               />
                                             </Bar>
                                           </BarChart>
@@ -930,7 +930,7 @@ export default function ClientDashboardPage() {
                                                 dataKey="value" 
                                                 position="right" 
                                                 className="fill-foreground text-sm font-medium"
-                                                formatter={(value: number) => value.toLocaleString()}
+                                                formatter={(value: any) => typeof value === 'number' ? value.toLocaleString() : String(value)}
                                               />
                                             </Bar>
                                           </BarChart>
