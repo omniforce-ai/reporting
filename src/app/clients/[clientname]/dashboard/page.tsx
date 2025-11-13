@@ -309,12 +309,6 @@ export default function ClientDashboardPage() {
       prevTabRef.current = activeTabId;
 
       if (activeTabId === 'overview') {
-        // Overview tab only fetches when clicked (tab changes), not when date range changes
-        // This prevents unnecessary API calls
-        if (!isTabChange && prevTab === 'overview') {
-          return; // Don't fetch if we're already on overview and only date range changed
-        }
-
         setIsLoadingEmailData(true);
         setEmailData(null);
         const abortController = new AbortController();
