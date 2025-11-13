@@ -112,6 +112,22 @@ function calculatePercentage(value: number, total: number): number {
   return Math.round((value / total) * 100 * 10) / 10;
 }
 
+function calculatePreviousPeriod(startDate: string, endDate: string): { start: string; end: string } {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  
+  const prevEnd = new Date(start);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - daysDiff);
+  
+  return {
+    start: prevStart.toISOString().split('T')[0],
+    end: prevEnd.toISOString().split('T')[0]
+  };
+}
+
 function formatComparison(current: number, previous: number, isPercentage: boolean = false): string {
   if (previous === 0) {
     if (current === 0) return '→ Same';
@@ -598,8 +614,50 @@ export async function GET(request: Request) {
         endDate
       );
 
-      // Note: Previous period data fetching removed to reduce API calls
-      // Campaign performance and active campaigns don't need previous period comparisons
+      // Fetch previous period data for comparison (only for specific metrics)
+      let previousPeriodTotals: typeof totals | null = null;
+      if (startDate && endDate) {
+        const previousPeriod = calculatePreviousPeriod(startDate, endDate);
+        console.log(`Fetching previous period data: ${previousPeriod.start} to ${previousPeriod.end}`);
+        
+        const previousAnalyticsResults = await batchFetchAnalytics(
+          campaigns,
+          smartleadApiKey,
+          controller.signal,
+          previousPeriod.start,
+          previousPeriod.end
+        );
+
+        previousPeriodTotals = previousAnalyticsResults.reduce(
+          (acc: typeof totals, analytics) => {
+            if (!analytics) return acc;
+            const metrics = getEmailMetrics(analytics);
+            acc.emailsSent += metrics.emailsSent;
+            acc.emailsOpened += metrics.emailsOpened;
+            acc.emailsClicked += metrics.emailsClicked;
+            acc.replies += metrics.replies;
+            acc.positiveReplies += metrics.positiveReplies;
+            acc.bounced += metrics.bounced;
+            acc.unsubscribed += metrics.unsubscribed;
+            acc.leads += metrics.leads;
+            acc.completed += metrics.completed;
+            acc.blocked += metrics.blocked;
+            return acc;
+          },
+          {
+            emailsSent: 0,
+            emailsOpened: 0,
+            emailsClicked: 0,
+            replies: 0,
+            positiveReplies: 0,
+            bounced: 0,
+            unsubscribed: 0,
+            leads: 0,
+            completed: 0,
+            blocked: 0,
+          }
+        );
+      }
 
       clearTimeout(timeoutId);
       
@@ -716,11 +774,27 @@ export async function GET(request: Request) {
       const completionRate = calculatePercentage(totals.completed, totals.leads);
       const blockedRate = calculatePercentage(totals.blocked, totals.leads);
       
-      // Calculate metrics without previous period comparisons
+      // Calculate previous period rates for comparison
+      let previousOpenRate = 0;
+      let previousReplyRate = 0;
+      if (previousPeriodTotals) {
+        const previousEmailsDelivered = previousPeriodTotals.emailsSent - previousPeriodTotals.bounced;
+        previousOpenRate = previousEmailsDelivered > 0
+          ? calculatePercentage(previousPeriodTotals.emailsOpened, previousEmailsDelivered)
+          : calculatePercentage(previousPeriodTotals.emailsOpened, previousPeriodTotals.emailsSent);
+        previousReplyRate = previousEmailsDelivered > 0
+          ? calculatePercentage(previousPeriodTotals.replies, previousEmailsDelivered)
+          : calculatePercentage(previousPeriodTotals.replies, previousPeriodTotals.emailsSent);
+      }
+
+      // Calculate metrics with previous period comparisons for specific metrics
       const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE').length;
       const emailsSent = totals.emailsSent;
+      const previousEmailsSent = previousPeriodTotals?.emailsSent || 0;
       const conversationsStarted = totals.replies;
+      const previousConversationsStarted = previousPeriodTotals?.replies || 0;
       const positiveReplies = positiveReplyCount;
+      const previousPositiveReplies = previousPeriodTotals?.positiveReplies || 0;
 
       // Generate reply trend data (weekly)
       const start = startDate ? new Date(startDate) : new Date();
@@ -763,27 +837,37 @@ export async function GET(request: Request) {
           {
             title: 'Total Emails Sent',
             value: formatNumber(emailsSent),
-            comparisonText: '→ Same',
+            comparisonText: previousPeriodTotals
+              ? formatComparison(emailsSent, previousEmailsSent)
+              : '→ Same',
           },
           {
             title: 'Conversations Started',
             value: formatNumber(conversationsStarted),
-            comparisonText: '→ Same',
+            comparisonText: previousPeriodTotals
+              ? formatComparison(conversationsStarted, previousConversationsStarted)
+              : '→ Same',
           },
           {
             title: 'Positive Replies',
             value: formatNumber(positiveReplies),
-            comparisonText: '→ Same',
+            comparisonText: previousPeriodTotals
+              ? formatComparison(positiveReplies, previousPositiveReplies)
+              : '→ Same',
           },
           {
             title: 'Reply Rate',
             value: `${replyRate.toFixed(2)}%`,
-            comparisonText: '→ Same',
+            comparisonText: previousPeriodTotals
+              ? formatComparison(replyRate, previousReplyRate, true)
+              : '→ Same',
           },
           {
             title: 'Open Rate',
             value: `${openRate.toFixed(2)}%`,
-            comparisonText: '→ Same',
+            comparisonText: previousPeriodTotals
+              ? formatComparison(openRate, previousOpenRate, true)
+              : '→ Same',
           },
         ]),
         conversationFunnel: {
