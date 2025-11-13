@@ -51,7 +51,8 @@ const OverviewCard: React.FC<OverviewCardProps> = ({
             
             const percentageMatch = metric.comparisonText?.match(/[+-]?\d+\.?\d*%/);
             const badgePercentage = percentageMatch ? percentageMatch[0] : null;
-            const badgeText = badgePercentage || (isNeutral ? '—' : metric.comparisonText ? '—' : null);
+            // Only show badge if there's a percentage change (not for "→ Same")
+            const badgeText = badgePercentage || null;
             
             return (
               <TooltipProvider key={index} delayDuration={300}>

@@ -87,9 +87,8 @@ const MetricCard: React.FC<Metric> = ({ title, value, comparisonText, icon: Icon
   const percentageMatch = comparisonText?.match(/[+-]?\d+\.?\d*%/);
   const badgePercentage = percentageMatch ? percentageMatch[0] : null;
   
-  // For badge display: show percentage if available, otherwise show dash for neutral comparisons
-  // Always show badge when comparisonText exists
-  const badgeText = badgePercentage || (isNeutral ? '—' : comparisonText ? '—' : null);
+  // Only show badge if there's a percentage change (not for "→ Same")
+  const badgeText = badgePercentage || null;
 
   return (
     <TooltipProvider delayDuration={300}>
