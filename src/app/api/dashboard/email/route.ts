@@ -4,6 +4,54 @@ import { sortMetrics } from '@/lib/utils/metric-order';
 
 const SMARTLEAD_BASE_URL = process.env.SMARTLEAD_BASE_URL || 'https://server.smartlead.ai/api/v1';
 const REQUEST_TIMEOUT = parseInt(process.env.REQUEST_TIMEOUT || '20000', 10);
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = MAX_RETRIES,
+  retryDelay: number = INITIAL_RETRY_DELAY
+): Promise<Response> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      
+      // If rate limited (429) and we have retries left, wait and retry
+      if (response.status === 429 && attempt < maxRetries) {
+        const delay = retryDelay * Math.pow(2, attempt); // Exponential backoff
+        console.log(`[Smartlead API] Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      
+      // Don't retry on abort errors
+      if (lastError.name === 'AbortError') {
+        throw lastError;
+      }
+      
+      // If it's the last attempt, throw the error
+      if (attempt === maxRetries) {
+        throw lastError;
+      }
+      
+      // Wait before retrying
+      const delay = retryDelay * Math.pow(2, attempt);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError || new Error('Failed after retries');
+}
+
+// Rate limiting removed - requests will be made in parallel
+// Retry logic with exponential backoff will handle rate limit errors
 
 interface CampaignLeadStats {
   total?: number;
@@ -62,22 +110,6 @@ function formatNumber(num: number): string {
 function calculatePercentage(value: number, total: number): number {
   if (total === 0) return 0;
   return Math.round((value / total) * 100 * 10) / 10;
-}
-
-function calculatePreviousPeriod(startDate: string, endDate: string): { start: string; end: string } {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-  
-  const prevEnd = new Date(start);
-  prevEnd.setDate(prevEnd.getDate() - 1);
-  const prevStart = new Date(prevEnd);
-  prevStart.setDate(prevStart.getDate() - daysDiff);
-  
-  return {
-    start: prevStart.toISOString().split('T')[0],
-    end: prevEnd.toISOString().split('T')[0]
-  };
 }
 
 function formatComparison(current: number, previous: number, isPercentage: boolean = false): string {
@@ -187,20 +219,19 @@ async function fetchCampaignAnalyticsByDateRange(
       end_date: endDate,
     });
     
+    // Use /analytics-by-date endpoint (it's more reliable and has the data we need)
+    // Note: /statistics endpoint may not have campaign_lead_stats.interested
     const endpoint = `${SMARTLEAD_BASE_URL}/campaigns/${campaignId}/analytics-by-date`;
     const url = `${endpoint}?${params.toString()}`;
     
-    const response = await fetch(
-      url,
-      {
-        signal,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'Omniforce-Reporting/1.0',
-        },
-        cache: 'no-store',
-      }
-    );
+    const response = await fetch(url, {
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Omniforce-Reporting/1.0',
+      },
+      cache: 'no-store',
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -211,15 +242,12 @@ async function fetchCampaignAnalyticsByDateRange(
     const data = await response.json();
     let analyticsData = Array.isArray(data) ? (data.length > 0 ? data[0] : null) : data;
     
-    // /analytics-by-date doesn't return campaign_lead_stats, but we need interested count
-    // ALWAYS fetch from /analytics endpoint and merge the interested count when using /analytics-by-date
-    // Note: This gives all-time interested count, not date-filtered (API limitation)
-    // Check if campaign_lead_stats is missing or empty (which /analytics-by-date returns)
-    const needsMerge = !analyticsData?.campaign_lead_stats || 
-                      Object.keys(analyticsData.campaign_lead_stats || {}).length === 0 ||
-                      analyticsData.campaign_lead_stats.interested === undefined;
+    // /analytics-by-date doesn't return campaign_lead_stats.interested, so we need to fetch it
+    // Check if interested is actually missing (undefined/null), not just 0 (which is valid)
+    const hasInterested = analyticsData?.campaign_lead_stats?.interested !== undefined && 
+                          analyticsData?.campaign_lead_stats?.interested !== null;
     
-    if (needsMerge) {
+    if (!hasInterested) {
       try {
         const allTimeParams = new URLSearchParams({ api_key: apiKey });
         const allTimeEndpoint = `${SMARTLEAD_BASE_URL}/campaigns/${campaignId}/analytics`;
@@ -243,27 +271,18 @@ async function fetchCampaignAnalyticsByDateRange(
             if (!analyticsData.campaign_lead_stats) {
               analyticsData.campaign_lead_stats = {};
             }
-            // Include interested count (0 is valid - means no positive replies yet)
             const interestedValue = allTimeAnalytics.campaign_lead_stats.interested;
             analyticsData.campaign_lead_stats.interested = (interestedValue !== undefined && interestedValue !== null) ? parseInt(String(interestedValue), 10) : 0;
             
-            // Also include total for leads calculation
             if (analyticsData.campaign_lead_stats.total === undefined || analyticsData.campaign_lead_stats.total === null) {
               analyticsData.campaign_lead_stats.total = allTimeAnalytics.campaign_lead_stats.total || 0;
             }
-            
-            console.log(`[DEBUG] Merged interested count for campaign ${campaignId}:`, {
-              fromAllTime: allTimeAnalytics.campaign_lead_stats.interested,
-              mergedValue: analyticsData.campaign_lead_stats.interested,
-            });
           }
         }
       } catch (mergeError) {
         // If merge fails, continue with date-filtered data only
         console.warn(`[WARN] Could not merge campaign_lead_stats for campaign ${campaignId}:`, mergeError);
       }
-    } else {
-      console.log(`[DEBUG] Campaign ${campaignId} already has campaign_lead_stats.interested:`, analyticsData.campaign_lead_stats.interested);
     }
     
     return analyticsData;
@@ -347,7 +366,7 @@ async function fetchCampaignAnalytics(
         currentStart.setDate(currentStart.getDate() + 1);
       }
       
-      // Fetch all chunks in parallel
+      // Fetch all chunks in parallel - no rate limiting delays
       const chunkResults = await Promise.allSettled(
         chunks.map(chunk => 
           fetchCampaignAnalyticsByDateRange(campaignId, apiKey, signal, chunk.start, chunk.end)
@@ -454,7 +473,8 @@ async function batchFetchAnalytics(
   startDate?: string,
   endDate?: string
 ): Promise<(CampaignAnalytics | null)[]> {
-  // Fetch all campaigns in parallel - no batching delays
+  // Fetch all campaigns in parallel - no rate limiting delays
+  // Retry logic with exponential backoff will handle rate limit errors
   const allPromises = campaigns.map(campaign => 
     fetchCampaignAnalytics(campaign.id, apiKey, signal, startDate, endDate)
   );
@@ -497,7 +517,7 @@ export async function GET(request: Request) {
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
     try {
-      const campaignsResponse = await fetch(
+      const campaignsResponse = await fetchWithRetry(
         `${SMARTLEAD_BASE_URL}/campaigns?api_key=${encodeURIComponent(smartleadApiKey)}`,
         {
           signal: controller.signal,
@@ -513,10 +533,34 @@ export async function GET(request: Request) {
         clearTimeout(timeoutId);
         const errorText = await campaignsResponse.text();
         
+        console.error(`[Smartlead API] Failed to fetch campaigns after retries:`, {
+          status: campaignsResponse.status,
+          statusText: campaignsResponse.statusText,
+          errorText: errorText.substring(0, 200),
+          tenant: tenant.subdomain,
+          dateRange: startDate && endDate ? `${startDate} to ${endDate}` : 'all-time',
+        });
+        
+        // For rate limits that persist after retries, return a generic error
+        // Don't expose rate limit details to clients
+        if (campaignsResponse.status === 429) {
+          return NextResponse.json(
+            { 
+              error: 'Service temporarily unavailable',
+              message: 'The service is currently busy. Please try again in a moment.',
+              status: 503, // Use 503 instead of 429 to hide rate limit details
+            },
+            { status: 503 }
+          );
+        }
+        
         return NextResponse.json(
           { 
             error: 'Failed to fetch campaigns',
-            status: campaignsResponse.status,
+            message: campaignsResponse.status === 401 ? 'Invalid Smartlead API key' 
+                   : campaignsResponse.status >= 500 ? 'Service temporarily unavailable'
+                   : `Unable to fetch data. Please try again.`,
+            status: campaignsResponse.status >= 500 ? 502 : campaignsResponse.status,
             details: errorText.substring(0, 200),
           },
           { status: campaignsResponse.status >= 500 ? 502 : campaignsResponse.status }
@@ -554,50 +598,8 @@ export async function GET(request: Request) {
         endDate
       );
 
-      // Fetch previous period data for comparison if date range is provided
-      let previousPeriodTotals: typeof totals | null = null;
-      if (startDate && endDate) {
-        const previousPeriod = calculatePreviousPeriod(startDate, endDate);
-        console.log(`Fetching previous period data: ${previousPeriod.start} to ${previousPeriod.end}`);
-        
-        const previousAnalyticsResults = await batchFetchAnalytics(
-          campaigns,
-          smartleadApiKey,
-          controller.signal,
-          previousPeriod.start,
-          previousPeriod.end
-        );
-
-        previousPeriodTotals = previousAnalyticsResults.reduce(
-          (acc: typeof totals, analytics) => {
-            if (!analytics) return acc;
-            const metrics = getEmailMetrics(analytics);
-            acc.emailsSent += metrics.emailsSent;
-            acc.emailsOpened += metrics.emailsOpened;
-            acc.emailsClicked += metrics.emailsClicked;
-            acc.replies += metrics.replies;
-            acc.positiveReplies += metrics.positiveReplies;
-            acc.bounced += metrics.bounced;
-            acc.unsubscribed += metrics.unsubscribed;
-            acc.leads += metrics.leads;
-            acc.completed += metrics.completed;
-            acc.blocked += metrics.blocked;
-            return acc;
-          },
-          {
-            emailsSent: 0,
-            emailsOpened: 0,
-            emailsClicked: 0,
-            replies: 0,
-            positiveReplies: 0,
-            bounced: 0,
-            unsubscribed: 0,
-            leads: 0,
-            completed: 0,
-            blocked: 0,
-          }
-        );
-      }
+      // Note: Previous period data fetching removed to reduce API calls
+      // Campaign performance and active campaigns don't need previous period comparisons
 
       clearTimeout(timeoutId);
       
@@ -714,36 +716,11 @@ export async function GET(request: Request) {
       const completionRate = calculatePercentage(totals.completed, totals.leads);
       const blockedRate = calculatePercentage(totals.blocked, totals.leads);
       
-      // Calculate previous period rates for comparison
-      let previousOpenRate = 0;
-      let previousReplyRate = 0;
-      if (previousPeriodTotals) {
-        const previousEmailsDelivered = previousPeriodTotals.emailsSent - previousPeriodTotals.bounced;
-        previousOpenRate = previousEmailsDelivered > 0 
-          ? calculatePercentage(previousPeriodTotals.emailsOpened, previousEmailsDelivered)
-          : calculatePercentage(previousPeriodTotals.emailsOpened, previousPeriodTotals.emailsSent);
-        previousReplyRate = previousEmailsDelivered > 0
-          ? calculatePercentage(previousPeriodTotals.replies, previousEmailsDelivered)
-          : calculatePercentage(previousPeriodTotals.replies, previousPeriodTotals.emailsSent);
-      }
-
-      // Count active campaigns
+      // Calculate metrics without previous period comparisons
       const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE').length;
-      // For active campaigns, we compare current vs previous period
-      // Note: Campaign status doesn't change by date range, but campaigns can be created/deleted
-      // Since we can't easily determine historical campaign status from the API,
-      // we use the current count for comparison (formatComparison will show "→ Same" if equal)
-      const previousActiveCampaigns = activeCampaigns;
-
-      // Calculate TOP 5 CARDS with comparisons
       const emailsSent = totals.emailsSent;
-      const previousEmailsSent = previousPeriodTotals?.emailsSent || 0;
-      
       const conversationsStarted = totals.replies;
-      const previousConversationsStarted = previousPeriodTotals?.replies || 0;
-      
       const positiveReplies = positiveReplyCount;
-      const previousPositiveReplies = previousPeriodTotals?.positiveReplies || 0;
 
       // Generate reply trend data (weekly)
       const start = startDate ? new Date(startDate) : new Date();
@@ -774,53 +751,39 @@ export async function GET(request: Request) {
           replyRate: campaignReplyRate,
         };
       })
-      .filter(c => c.replies > 0)
-      .sort((a, b) => b.replies - a.replies)
-      .slice(0, 10);
+      .sort((a, b) => b.replies - a.replies);
 
       const dashboardData = {
         metrics: sortMetrics([
           {
             title: 'Active Campaigns',
             value: formatNumber(activeCampaigns),
-            comparisonText: previousPeriodTotals
-              ? formatComparison(activeCampaigns, previousActiveCampaigns)
-              : '→ Same',
+            comparisonText: '→ Same',
           },
           {
             title: 'Total Emails Sent',
             value: formatNumber(emailsSent),
-            comparisonText: previousPeriodTotals 
-              ? formatComparison(emailsSent, previousEmailsSent)
-              : '→ Same',
+            comparisonText: '→ Same',
           },
           {
             title: 'Conversations Started',
             value: formatNumber(conversationsStarted),
-            comparisonText: previousPeriodTotals 
-              ? formatComparison(conversationsStarted, previousConversationsStarted)
-              : '→ Same',
+            comparisonText: '→ Same',
           },
           {
             title: 'Positive Replies',
             value: formatNumber(positiveReplies),
-            comparisonText: previousPeriodTotals 
-              ? formatComparison(positiveReplies, previousPositiveReplies)
-              : '→ Same',
+            comparisonText: '→ Same',
           },
           {
             title: 'Reply Rate',
             value: `${replyRate.toFixed(2)}%`,
-            comparisonText: previousPeriodTotals 
-              ? formatComparison(replyRate, previousReplyRate, true)
-              : '→ Same',
+            comparisonText: '→ Same',
           },
           {
             title: 'Open Rate',
             value: `${openRate.toFixed(2)}%`,
-            comparisonText: previousPeriodTotals 
-              ? formatComparison(openRate, previousOpenRate, true)
-              : '→ Same',
+            comparisonText: '→ Same',
           },
         ]),
         conversationFunnel: {
@@ -881,8 +844,15 @@ export async function GET(request: Request) {
       clearTimeout(timeoutId);
       
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        console.error('[Smartlead API] Request aborted or timed out:', {
+          tenant: tenant.subdomain,
+          dateRange: startDate && endDate ? `${startDate} to ${endDate}` : 'all-time',
+        });
         return NextResponse.json(
-          { error: 'Request timeout' },
+          { 
+            error: 'Request timeout',
+            message: 'The request took too long to complete. Please try again.',
+          },
           { status: 504 }
         );
       }
@@ -890,9 +860,25 @@ export async function GET(request: Request) {
       throw fetchError;
     }
   } catch (error) {
-    console.error('Error fetching email dashboard data:', error);
+    console.error('[Smartlead API] Error fetching email dashboard data:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      tenant: tenant?.subdomain,
+      dateRange: startDate && endDate ? `${startDate} to ${endDate}` : 'all-time',
+    });
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Check if it's a network/abort error
+    if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('aborted'))) {
+      return NextResponse.json(
+        { 
+          error: 'Request cancelled',
+          message: 'The request was cancelled. This may happen when the date range is changed quickly.',
+        },
+        { status: 499 }
+      );
+    }
     
     return NextResponse.json(
       { 

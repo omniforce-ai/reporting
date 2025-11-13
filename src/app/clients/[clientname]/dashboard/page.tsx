@@ -2,10 +2,9 @@
 
 import MetricCard from '@/components/MetricCard';
 import OverviewCard from '@/components/OverviewCard';
-import CampaignsTable from '@/components/CampaignsTable';
 import CampaignPerformanceTable from '@/components/CampaignPerformanceTable';
 import FontPreview from '@/components/FontPreview';
-import { DashboardSkeleton, MetricCardSkeleton } from '@/components/LoadingSkeleton';
+import { DashboardSkeleton, MetricCardSkeleton, ConversationFunnelSkeleton, CampaignPerformanceTableSkeleton } from '@/components/LoadingSkeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
 import { AnalyticsIcon, CheckCircleIcon, ClockIcon, MailIcon, TasksIcon, ThumbsUpIcon, XCircleIcon } from '@/components/icons';
@@ -14,12 +13,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
-import { BarChart, Bar, AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { BarChart, Bar, AreaChart, Area, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, LabelList } from 'recharts';
 import type { FeatureDefinition } from '@/lib/config/features';
 import { getAllFeatures, getFeatureDefinition } from '@/lib/config/features';
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { chartHeights } from '@/lib/design-tokens';
 
 export default function ClientDashboardPage() {
   const params = useParams();
@@ -302,6 +303,7 @@ export default function ClientDashboardPage() {
     if (clientInfo?.subdomain) {
       if (activeTabId === 'overview') {
         setIsLoadingEmailData(true);
+        setEmailData(null);
         const abortController = new AbortController();
         let isMounted = true;
         
@@ -328,6 +330,7 @@ export default function ClientDashboardPage() {
                 replies: repliesMetric?.value,
                 totalContacted: totalContactedMetric?.value,
                 metricsCount: dashboardData?.metrics?.length || 0,
+                dateRange: { start: dateRange.start, end: dateRange.end },
               });
             }
             setEmailData(dashboardData);
@@ -337,6 +340,7 @@ export default function ClientDashboardPage() {
             if (!isMounted || err.name === 'AbortError') return;
             
             console.error('Failed to fetch overview data:', err);
+            setEmailData(null);
             setIsLoadingEmailData(false);
           });
         
@@ -346,6 +350,8 @@ export default function ClientDashboardPage() {
         };
       } else if (activeTabId === 'smartlead' || activeTabId === 'lemlist') {
         setIsLoadingEmailData(true);
+        setEmailData(null);
+        setEmailDataError(null); // Clear previous errors when starting new request
         const endpoint = activeTabId === 'smartlead' ? '/api/dashboard/email' : '/api/dashboard/lemlist';
         
         const abortController = new AbortController();
@@ -356,8 +362,16 @@ export default function ClientDashboardPage() {
         })
           .then(async res => {
             if (!res.ok) {
-              const errorData = await res.json().catch(() => ({}));
-              const errorMessage = errorData.message || errorData.error || 'Failed to fetch dashboard data';
+              let errorData: any = {};
+              try {
+                const text = await res.text();
+                errorData = text ? JSON.parse(text) : {};
+              } catch (e) {
+                // Response is not JSON, use status text
+                errorData = { error: res.statusText || `HTTP ${res.status}` };
+              }
+              
+              const errorMessage = errorData.message || errorData.error || `Failed to fetch dashboard data (${res.status})`;
               const error = new Error(errorMessage);
               (error as any).status = res.status;
               throw error;
@@ -376,6 +390,7 @@ export default function ClientDashboardPage() {
                 totalContacted: dashboardData?.executiveSummary?.totalContacted,
                 overallReplyRate: dashboardData?.overallReplyRate,
                 hasMetrics: !!(dashboardData?.metrics?.length),
+                dateRange: { start: dateRange.start, end: dateRange.end },
               });
             }
             setEmailData(dashboardData);
@@ -383,16 +398,44 @@ export default function ClientDashboardPage() {
             setIsLoadingEmailData(false);
           })
           .catch(err => {
-            if (!isMounted || err.name === 'AbortError') return;
+            // Ignore abort errors - these happen when date range changes quickly
+            if (!isMounted || err.name === 'AbortError') {
+              return;
+            }
             
             const status = (err as any).status;
             const isConfigurationError = status === 400;
+            const isTimeout = status === 504;
+            const isCancelled = status === 499;
             
-            if (!isConfigurationError) {
-              console.error('Failed to fetch dashboard data:', err);
+            // Don't log or show errors for cancelled requests (happens when date range changes)
+            if (isCancelled) {
+              return;
             }
             
-            setEmailDataError(err.message || 'Failed to fetch dashboard data');
+            // Handle network errors (no response received)
+            if (err instanceof TypeError && err.message.includes('fetch')) {
+              console.error(`[Dashboard] Network error fetching ${activeTabId} data:`, {
+                error: err.message,
+                dateRange: { start: dateRange.start, end: dateRange.end },
+              });
+              setEmailDataError('Network error. Please check your connection and try again.');
+              setEmailData(null);
+              setIsLoadingEmailData(false);
+              return;
+            }
+            
+            if (!isConfigurationError && !isTimeout) {
+              console.error(`[Dashboard] Failed to fetch ${activeTabId} data:`, {
+                error: err.message,
+                status,
+                dateRange: { start: dateRange.start, end: dateRange.end },
+              });
+            }
+            
+            // Use the error message from API if available, otherwise use default
+            const errorMessage = err.message || 'Failed to fetch dashboard data';
+            setEmailDataError(errorMessage);
             setEmailData(null);
             setIsLoadingEmailData(false);
           });
@@ -573,7 +616,17 @@ export default function ClientDashboardPage() {
                       <FontPreview />
                     ) : emailDataError ? (
                       <ErrorState
-                        title="Configuration Error"
+                        title={
+                          emailDataError.includes('Rate limit') || emailDataError.includes('rate limit')
+                            ? 'Rate Limit Exceeded'
+                            : emailDataError.includes('API key') || emailDataError.includes('not configured')
+                            ? 'Configuration Error'
+                            : emailDataError.includes('timeout') || emailDataError.includes('Request timeout')
+                            ? 'Request Timeout'
+                            : emailDataError.includes('Network error')
+                            ? 'Network Error'
+                            : 'Unable to Load Data'
+                        }
                         message={emailDataError}
                       />
                     ) : (
@@ -594,30 +647,67 @@ export default function ClientDashboardPage() {
                         ) : (
                           <>
                             {/* Overview Tab - Show OverviewCard with first 6 metrics, then smaller cards below */}
-                            {feature.id === 'overview' && displayData?.metrics && displayData.metrics.length > 0 && (
+                            {feature.id === 'overview' && (
                               <>
-                                {/* Overview Card with first 6 metrics */}
-                                <OverviewCard
-                                  metrics={displayData.metrics.slice(0, 6).map((metric: any) => ({
-                                    title: metric.title,
-                                    value: metric.value,
-                                    comparisonText: metric.comparisonText,
-                                  }))}
-                                />
-                                
-                                {/* Remaining metrics as smaller cards below */}
-                                {displayData.metrics.length > 6 && (
-                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    {displayData.metrics.slice(6).map((metric: any, index: number) => (
-                                      <MetricCard
-                                        key={index + 6}
-                                        title={metric.title}
-                                        value={metric.value}
-                                        comparisonText={metric.comparisonText}
-                                        icon={metric.icon || CheckCircleIcon}
-                                      />
-                                    ))}
-                                  </div>
+                                {isLoadingEmailData ? (
+                                  <>
+                                    {/* Loading skeletons for Overview Card */}
+                                    <Card className="w-full">
+                                      <CardHeader>
+                                        <CardTitle>
+                                          <Skeleton className="h-6 w-32 bg-muted animate-pulse" />
+                                        </CardTitle>
+                                      </CardHeader>
+                                      <CardContent>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+                                          {[1, 2, 3, 4, 5, 6].map((i) => (
+                                            <div key={i} className="space-y-2">
+                                              <Skeleton className="h-4 w-24 bg-muted animate-pulse" />
+                                              <Skeleton className="h-8 w-20 bg-muted animate-pulse" />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                    {/* Loading skeletons for remaining metrics */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                      {[1, 2, 3, 4].map((i) => (
+                                        <MetricCardSkeleton key={i} />
+                                      ))}
+                                    </div>
+                                  </>
+                                ) : displayData?.metrics && displayData.metrics.length > 0 ? (
+                                  <>
+                                    {/* Overview Card with first 6 metrics */}
+                                    <OverviewCard
+                                      metrics={displayData.metrics.slice(0, 6).map((metric: any) => ({
+                                        title: metric.title,
+                                        value: metric.value,
+                                        comparisonText: metric.comparisonText,
+                                      }))}
+                                    />
+                                    
+                                    {/* Remaining metrics as smaller cards below */}
+                                    {displayData.metrics.length > 6 && (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        {displayData.metrics.slice(6).map((metric: any, index: number) => (
+                                          <MetricCard
+                                            key={`${metric.title}-${dateRange.start}-${dateRange.end}-${index + 6}`}
+                                            title={metric.title}
+                                            value={metric.value}
+                                            comparisonText={metric.comparisonText}
+                                            icon={metric.icon || CheckCircleIcon}
+                                          />
+                                        ))}
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <EmptyState
+                                    icon={AnalyticsIcon}
+                                    title="No Data Available"
+                                    description="No data found for the selected date range. Try selecting a different time period."
+                                  />
                                 )}
                               </>
                             )}
@@ -668,7 +758,7 @@ export default function ClientDashboardPage() {
                                     <CardTitle>{displayData.completionRate.title}</CardTitle>
                                   </CardHeader>
                                   <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col justify-center">
-                                    <div className="relative h-[120px] flex-shrink-0">
+                                    <div className="relative flex-shrink-0" style={{ height: chartHeights.gauge }}>
                                       <ChartContainer config={gaugeConfig} className="h-full w-full">
                                         <PieChart>
                                           <Pie
@@ -730,7 +820,7 @@ export default function ClientDashboardPage() {
                                     <CardTitle>{displayData.clickRateGauge.title}</CardTitle>
                                   </CardHeader>
                                   <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col justify-center">
-                                    <div className="relative h-[120px] flex-shrink-0">
+                                    <div className="relative flex-shrink-0" style={{ height: chartHeights.gauge }}>
                                       <ChartContainer config={gaugeConfig} className="h-full w-full">
                                         <PieChart>
                                           <Pie
@@ -766,175 +856,115 @@ export default function ClientDashboardPage() {
                         )}
 
                         {/* Charts - Always 2 columns per row */}
-                        {!isLoadingEmailData && displayData && (displayData.leadFunnel || displayData.conversationFunnel || displayData.campaignLeaderboard || displayData.channelComparison || displayData.weeklyTrend) && (
+                        {(isLoadingEmailData || (displayData && (displayData.leadFunnel || displayData.conversationFunnel || displayData.campaignLeaderboard || displayData.channelComparison))) && (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {displayData.leadFunnel && displayData.leadFunnel.data && displayData.leadFunnel.data.length > 0 && (() => {
-                              const chartConfig = {
-                                value: { label: 'Value', color: "hsl(var(--chart-1))" },
-                              } satisfies ChartConfig;
-                              return (
-                                <Card className="@container/card flex flex-col h-full">
-                                  <CardHeader className="relative">
-                                    <CardTitle>{displayData.leadFunnel.title}</CardTitle>
-                                    {displayData.leadFunnel.description && <CardDescription>{displayData.leadFunnel.description}</CardDescription>}
-                                  </CardHeader>
-                                  <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
-                                    <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
-                                      <BarChart data={displayData.leadFunnel.data} layout="vertical" margin={{ left: 0, right: 16 }}>
-                                        <XAxis type="number" dataKey="value" hide />
-                                        <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} width={150} tick={{ fill: 'hsl(var(--foreground))', fontSize: 12 }} />
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                                        <Bar dataKey="value" fill="var(--color-value)" radius={5} />
-                                      </BarChart>
-                                    </ChartContainer>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
-                            
-                            {displayData.conversationFunnel && displayData.conversationFunnel.data && displayData.conversationFunnel.data.length > 0 && (() => {
-                              const chartConfig = {
-                                value: { label: 'Value', color: "hsl(var(--chart-1))" },
-                              } satisfies ChartConfig;
-                              return (
-                                <Card className="@container/card flex flex-col h-full">
-                                  <CardHeader className="relative">
-                                    <CardTitle>{displayData.conversationFunnel.title}</CardTitle>
-                                    {displayData.conversationFunnel.description && <CardDescription>{displayData.conversationFunnel.description}</CardDescription>}
-                                  </CardHeader>
-                                  <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
-                                    <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
-                                      <BarChart data={displayData.conversationFunnel.data} layout="vertical" margin={{ left: 0, right: 16 }}>
-                                        <XAxis type="number" dataKey="value" hide />
-                                        <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} width={150} tick={{ fill: 'hsl(var(--foreground))', fontSize: 12 }} />
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                                        <Bar dataKey="value" fill="var(--color-value)" radius={5} />
-                                      </BarChart>
-                                    </ChartContainer>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
-                            
-                            {displayData.channelComparison && displayData.channelComparison.data && displayData.channelComparison.data.length > 0 && (() => {
-                              const chartConfig = {
-                                email: { label: "Email", color: "hsl(var(--chart-1))" },
-                                linkedin: { label: "LinkedIn", color: "hsl(var(--chart-2))" },
-                              } satisfies ChartConfig;
-                              return (
-                                <Card className="@container/card">
-                                  <CardHeader className="relative">
-                                    <CardTitle>{displayData.channelComparison.title}</CardTitle>
-                                    {displayData.channelComparison.description && <CardDescription>{displayData.channelComparison.description}</CardDescription>}
-                                  </CardHeader>
-                                  <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-                                    <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
-                                      <BarChart data={displayData.channelComparison.data}>
-                                        <CartesianGrid vertical={false} />
-                                        <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} />
-                                        <YAxis tickLine={false} axisLine={false} />
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
-                                        <ChartLegend verticalAlign="bottom" height={36} content={<ChartLegendContent />} />
-                                        <Bar dataKey="email" name="email" fill="var(--color-email)" radius={[8, 8, 0, 0]} />
-                                        <Bar dataKey="linkedin" name="linkedin" fill="var(--color-linkedin)" radius={[8, 8, 0, 0]} />
-                                      </BarChart>
-                                    </ChartContainer>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
-                            
-                            {displayData.campaignLeaderboard && (
-                              <CampaignPerformanceTable
-                                title={displayData.campaignLeaderboard.title}
-                                description={displayData.campaignLeaderboard.description}
-                                data={displayData.campaignLeaderboard.data}
-                                valueLabel={displayData.campaignLeaderboard.valueLabel}
-                              />
-                            )}
-                            
-                            {displayData.weeklyTrend && displayData.weeklyTrend.data && displayData.weeklyTrend.data.length > 0 && (() => {
-                              const chartConfig = {
-                                emailOpens: { label: "Email Opens", color: "hsl(var(--chart-1))" },
-                                emailClicks: { label: "Email Clicks", color: "hsl(var(--chart-1))" },
-                                linkedInVisits: { label: "LinkedIn Visits", color: "hsl(var(--chart-1))" },
-                                linkedInConnects: { label: "LinkedIn Connects", color: "hsl(var(--chart-1))" },
-                                linkedInConnectionRequests: { label: "LinkedIn Connection Requests", color: "hsl(var(--chart-1))" },
-                                linkedInAccepted: { label: "LinkedIn Accepted", color: "hsl(var(--chart-1))" },
-                                replies: { label: "Replies", color: "hsl(var(--chart-1))" },
-                              } satisfies ChartConfig;
-                              return (
-                                <Card className="@container/card">
-                                  <CardHeader className="relative">
-                                    <CardTitle>{displayData.weeklyTrend.title}</CardTitle>
-                                    {displayData.weeklyTrend.description && <CardDescription>{displayData.weeklyTrend.description}</CardDescription>}
-                                  </CardHeader>
-                                  <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-                                    <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
-                                      <AreaChart data={displayData.weeklyTrend.data}>
-                                        <defs>
-                                          <linearGradient id="fillEmailOpens" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-emailOpens)" stopOpacity={0.8} />
-                                            <stop offset="95%" stopColor="var(--color-emailOpens)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                          <linearGradient id="fillEmailClicks" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-emailClicks)" stopOpacity={0.8} />
-                                            <stop offset="95%" stopColor="var(--color-emailClicks)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                          <linearGradient id="fillLinkedInVisits" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-linkedInVisits)" stopOpacity={0.8} />
-                                            <stop offset="95%" stopColor="var(--color-linkedInVisits)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                          <linearGradient id="fillLinkedInConnects" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-linkedInConnects)" stopOpacity={0.8} />
-                                            <stop offset="95%" stopColor="var(--color-linkedInConnects)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                          <linearGradient id="fillReplies" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-replies)" stopOpacity={0.8} />
-                                            <stop offset="95%" stopColor="var(--color-replies)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                          <linearGradient id="fillLinkedInConnectionRequests" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-linkedInConnectionRequests)" stopOpacity={0.8} />
-                                            <stop offset="95%" stopColor="var(--color-linkedInConnectionRequests)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                          <linearGradient id="fillLinkedInAccepted" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="var(--color-linkedInAccepted)" stopOpacity={0.8} />
-                                            <stop offset="95%" stopColor="var(--color-linkedInAccepted)" stopOpacity={0.1} />
-                                          </linearGradient>
-                                        </defs>
-                                        <CartesianGrid vertical={false} />
-                                        <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} />
-                                        <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
-                                        <ChartLegend verticalAlign="bottom" height={36} content={<ChartLegendContent />} />
-                                        <Area type="natural" dataKey="emailOpens" name="emailOpens" stackId="1" stroke="var(--color-emailOpens)" fill="url(#fillEmailOpens)" />
-                                        <Area type="natural" dataKey="emailClicks" name="emailClicks" stackId="1" stroke="var(--color-emailClicks)" fill="url(#fillEmailClicks)" />
-                                        <Area type="natural" dataKey="linkedInVisits" name="linkedInVisits" stackId="1" stroke="var(--color-linkedInVisits)" fill="url(#fillLinkedInVisits)" />
-                                        <Area type="natural" dataKey="linkedInConnects" name="linkedInConnects" stackId="1" stroke="var(--color-linkedInConnects)" fill="url(#fillLinkedInConnects)" />
-                                        <Area type="natural" dataKey="linkedInConnectionRequests" name="linkedInConnectionRequests" stackId="1" stroke="var(--color-linkedInConnectionRequests)" fill="url(#fillLinkedInConnectionRequests)" />
-                                        <Area type="natural" dataKey="linkedInAccepted" name="linkedInAccepted" stackId="1" stroke="var(--color-linkedInAccepted)" fill="url(#fillLinkedInAccepted)" />
-                                        <Area type="natural" dataKey="replies" name="replies" stackId="1" stroke="var(--color-replies)" fill="url(#fillReplies)" />
-                                      </AreaChart>
-                                    </ChartContainer>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
+                            {isLoadingEmailData ? (
+                              <>
+                                <ConversationFunnelSkeleton />
+                                <CampaignPerformanceTableSkeleton />
+                              </>
+                            ) : displayData ? (
+                              <>
+                                {displayData.leadFunnel?.data?.length > 0 && (() => {
+                                  const chartConfig = {
+                                    value: { label: 'Value', color: "hsl(var(--chart-1))" },
+                                  } satisfies ChartConfig;
+                                  return (
+                                    <Card className="@container/card flex flex-col h-full">
+                                      <CardHeader className="relative">
+                                        <CardTitle>{displayData.leadFunnel.title}</CardTitle>
+                                        {displayData.leadFunnel.description && <CardDescription>{displayData.leadFunnel.description}</CardDescription>}
+                                      </CardHeader>
+                                      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+                                        <ChartContainer config={chartConfig} className="w-full" style={{ height: chartHeights.standard }}>
+                                          <BarChart data={displayData.leadFunnel.data} layout="vertical" margin={{ left: 0, right: 60 }}>
+                                            <XAxis type="number" dataKey="value" hide />
+                                            <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} width={150} tick={{ fill: 'hsl(var(--foreground))', fontSize: 12 }} />
+                                            <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                                            <Bar dataKey="value" fill="var(--color-value)" radius={5}>
+                                              <LabelList 
+                                                dataKey="value" 
+                                                position="right" 
+                                                className="fill-foreground text-sm font-medium"
+                                                formatter={(value: number) => value.toLocaleString()}
+                                              />
+                                            </Bar>
+                                          </BarChart>
+                                        </ChartContainer>
+                                      </CardContent>
+                                    </Card>
+                                  );
+                                })()}
+                                
+                                {displayData.conversationFunnel?.data?.length > 0 && (() => {
+                                  const chartConfig = {
+                                    value: { label: 'Value', color: "hsl(var(--chart-1))" },
+                                  } satisfies ChartConfig;
+                                  return (
+                                    <Card className="@container/card flex flex-col h-full">
+                                      <CardHeader className="relative">
+                                        <CardTitle>{displayData.conversationFunnel.title}</CardTitle>
+                                        {displayData.conversationFunnel.description && <CardDescription>{displayData.conversationFunnel.description}</CardDescription>}
+                                      </CardHeader>
+                                      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+                                        <ChartContainer config={chartConfig} className="w-full" style={{ height: chartHeights.standard }}>
+                                          <BarChart data={displayData.conversationFunnel.data} layout="vertical" margin={{ left: 0, right: 16 }}>
+                                            <XAxis type="number" dataKey="value" hide />
+                                            <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} width={150} tick={{ fill: 'hsl(var(--foreground))', fontSize: 12 }} />
+                                            <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                                            <Bar dataKey="value" fill="var(--color-value)" radius={5} />
+                                          </BarChart>
+                                        </ChartContainer>
+                                      </CardContent>
+                                    </Card>
+                                  );
+                                })()}
+                                
+                                {displayData.channelComparison?.data?.length > 0 && (() => {
+                                  const chartConfig = {
+                                    email: { label: "Email", color: "hsl(var(--chart-1))" },
+                                    linkedin: { label: "LinkedIn", color: "hsl(var(--chart-2))" },
+                                  } satisfies ChartConfig;
+                                  return (
+                                    <Card className="@container/card flex flex-col h-full">
+                                      <CardHeader className="relative">
+                                        <CardTitle>{displayData.channelComparison.title}</CardTitle>
+                                        {displayData.channelComparison.description && <CardDescription>{displayData.channelComparison.description}</CardDescription>}
+                                      </CardHeader>
+                                      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+                                        <ChartContainer config={chartConfig} className="w-full" style={{ height: chartHeights.standard }}>
+                                          <BarChart data={displayData.channelComparison.data}>
+                                            <CartesianGrid vertical={false} />
+                                            <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} />
+                                            <YAxis tickLine={false} axisLine={false} />
+                                            <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+                                            <ChartLegend verticalAlign="bottom" height={36} content={<ChartLegendContent />} />
+                                            <Bar dataKey="email" name="email" fill="var(--color-email)" radius={[8, 8, 0, 0]} />
+                                            <Bar dataKey="linkedin" name="linkedin" fill="var(--color-linkedin)" radius={[8, 8, 0, 0]} />
+                                          </BarChart>
+                                        </ChartContainer>
+                                      </CardContent>
+                                    </Card>
+                                  );
+                                })()}
+                                
+                                {displayData.campaignLeaderboard && (
+                                  <CampaignPerformanceTable
+                                    title={displayData.campaignLeaderboard.title}
+                                    description={displayData.campaignLeaderboard.description}
+                                    data={displayData.campaignLeaderboard.data}
+                                    valueLabel={displayData.campaignLeaderboard.valueLabel}
+                                  />
+                                )}
+                              </>
+                            ) : null}
                           </div>
                         )}
 
                         {/* Legacy Activity Charts - Only show charts supported by APIs */}
-                        {!isLoadingEmailData && displayData && (displayData.campaignPerformance || displayData.engagementMetrics) && (
+                        {!isLoadingEmailData && displayData && displayData.engagementMetrics && displayData.engagementMetrics.data && displayData.engagementMetrics.data.length > 0 && (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {displayData.campaignPerformance && (
-                              <CampaignPerformanceTable
-                                title={displayData.campaignPerformance.title}
-                                description={displayData.campaignPerformance.description}
-                                data={displayData.campaignPerformance.data}
-                                valueLabel={displayData.campaignPerformance.valueLabel}
-                              />
-                            )}
-                            
-                            {displayData.engagementMetrics && displayData.engagementMetrics.data && displayData.engagementMetrics.data.length > 0 && (() => {
+                            {(() => {
                               const chartConfig = {
                                 emailSent: { label: "Email Sent", color: "hsl(var(--chart-1))" },
                                 emailOpened: { label: "Email Opened", color: "hsl(var(--chart-2))" },
@@ -950,7 +980,7 @@ export default function ClientDashboardPage() {
                                     {displayData.engagementMetrics.description && <CardDescription>{displayData.engagementMetrics.description}</CardDescription>}
                                   </CardHeader>
                                   <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6 flex-1 flex flex-col">
-                                    <ChartContainer config={chartConfig} className="flex-1 min-h-[288px] w-full">
+                                    <ChartContainer config={chartConfig} className="w-full" style={{ height: chartHeights.standard }}>
                                       <LineChart data={displayData.engagementMetrics.data}>
                                         <CartesianGrid vertical={false} />
                                         <XAxis dataKey="name" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={(value) => {
@@ -982,14 +1012,6 @@ export default function ClientDashboardPage() {
                           </div>
                         )}
 
-                        {/* Campaigns Table */}
-                        {!isLoadingEmailData && displayData && displayData.campaigns && displayData.campaigns.length > 0 && (
-                          <CampaignsTable 
-                            campaigns={displayData.campaigns}
-                            title="Campaigns"
-                            description="Performance metrics for all campaigns"
-                          />
-                        )}
                       </div>
                     )}
                   </TabsContent>
