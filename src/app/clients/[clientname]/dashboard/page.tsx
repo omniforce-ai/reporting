@@ -302,6 +302,8 @@ export default function ClientDashboardPage() {
   useEffect(() => {
     if (clientInfo?.subdomain) {
       if (activeTabId === 'overview') {
+        // Overview tab only fetches when clicked, not when date range changes
+        // This prevents unnecessary API calls
         setIsLoadingEmailData(true);
         setEmailData(null);
         const abortController = new AbortController();
@@ -450,7 +452,11 @@ export default function ClientDashboardPage() {
         setIsLoadingEmailData(false);
       }
     }
-  }, [activeTabId, clientInfo?.subdomain, dateRange.start, dateRange.end]);
+  }, [activeTabId, clientInfo?.subdomain, 
+      // Only include dateRange for smartlead/lemlist tabs, not overview
+      // Overview tab only updates when clicked, not when date range changes
+      ...(activeTabId === 'smartlead' || activeTabId === 'lemlist' ? [dateRange.start, dateRange.end] : [])
+    ]);
 
   // Memoize data transformation to avoid recalculating on every render
   // MUST be called before any conditional returns (Rules of Hooks)
@@ -908,11 +914,18 @@ export default function ClientDashboardPage() {
                                       </CardHeader>
                                       <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
                                         <ChartContainer config={chartConfig} className="w-full" style={{ height: chartHeights.standard }}>
-                                          <BarChart data={displayData.conversationFunnel.data} layout="vertical" margin={{ left: 0, right: 16 }}>
+                                          <BarChart data={displayData.conversationFunnel.data} layout="vertical" margin={{ left: 0, right: 60 }}>
                                             <XAxis type="number" dataKey="value" hide />
                                             <YAxis dataKey="name" type="category" tickLine={false} tickMargin={10} axisLine={false} width={150} tick={{ fill: 'hsl(var(--foreground))', fontSize: 12 }} />
                                             <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                                            <Bar dataKey="value" fill="var(--color-value)" radius={5} />
+                                            <Bar dataKey="value" fill="var(--color-value)" radius={5}>
+                                              <LabelList 
+                                                dataKey="value" 
+                                                position="right" 
+                                                className="fill-foreground text-sm font-medium"
+                                                formatter={(value: number) => value.toLocaleString()}
+                                              />
+                                            </Bar>
                                           </BarChart>
                                         </ChartContainer>
                                       </CardContent>
