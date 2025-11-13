@@ -298,12 +298,23 @@ export default function ClientDashboardPage() {
     }
   }, [searchParams, enabledFeatures]);
 
+  // Track previous tab to detect tab changes (not date range changes for overview)
+  const prevTabRef = useRef<string | null>(null);
+
   // Fetch data when tab is active and we have client info
   useEffect(() => {
     if (clientInfo?.subdomain) {
+      const prevTab = prevTabRef.current;
+      const isTabChange = prevTab !== activeTabId;
+      prevTabRef.current = activeTabId;
+
       if (activeTabId === 'overview') {
-        // Overview tab only fetches when clicked, not when date range changes
+        // Overview tab only fetches when clicked (tab changes), not when date range changes
         // This prevents unnecessary API calls
+        if (!isTabChange && prevTab === 'overview') {
+          return; // Don't fetch if we're already on overview and only date range changed
+        }
+
         setIsLoadingEmailData(true);
         setEmailData(null);
         const abortController = new AbortController();
@@ -452,11 +463,7 @@ export default function ClientDashboardPage() {
         setIsLoadingEmailData(false);
       }
     }
-  }, [activeTabId, clientInfo?.subdomain, 
-      // Only include dateRange for smartlead/lemlist tabs, not overview
-      // Overview tab only updates when clicked, not when date range changes
-      ...(activeTabId === 'smartlead' || activeTabId === 'lemlist' ? [dateRange.start, dateRange.end] : [])
-    ]);
+  }, [activeTabId, clientInfo?.subdomain, dateRange.start, dateRange.end]);
 
   // Memoize data transformation to avoid recalculating on every render
   // MUST be called before any conditional returns (Rules of Hooks)
