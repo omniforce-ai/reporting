@@ -504,12 +504,14 @@ async function batchFetchAnalytics(
 }
 
 export async function GET(request: Request) {
+  let tenant: Awaited<ReturnType<typeof getCurrentTenant>> = null;
+  
   try {
     const { searchParams } = new URL(request.url);
     const clientId = searchParams.get('client') || undefined;
     const startDate = searchParams.get('startDate') || undefined;
     const endDate = searchParams.get('endDate') || undefined;
-    const tenant = await getCurrentTenant(clientId || undefined);
+    tenant = await getCurrentTenant(clientId || undefined);
     
     if (!tenant) {
       return NextResponse.json(
