@@ -505,12 +505,14 @@ async function batchFetchAnalytics(
 
 export async function GET(request: Request) {
   let tenant: Awaited<ReturnType<typeof getCurrentTenant>> = null;
+  let startDate: string | undefined;
+  let endDate: string | undefined;
   
   try {
     const { searchParams } = new URL(request.url);
     const clientId = searchParams.get('client') || undefined;
-    const startDate = searchParams.get('startDate') || undefined;
-    const endDate = searchParams.get('endDate') || undefined;
+    startDate = searchParams.get('startDate') || undefined;
+    endDate = searchParams.get('endDate') || undefined;
     tenant = await getCurrentTenant(clientId || undefined);
     
     if (!tenant) {
