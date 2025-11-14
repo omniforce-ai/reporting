@@ -79,7 +79,8 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
           
           // If metadata is still missing, check if user has a pending/accepted invitation and apply it
           // This handles cases where Clerk didn't automatically copy invitation metadata
-          if (!role && !clientSlug) {
+          // Apply if role is missing, or if role is 'client' but clientSlug is missing
+          if (!role || (role === 'client' && !clientSlug)) {
             try {
               const email = user.emailAddresses?.[0]?.emailAddress;
               if (email) {

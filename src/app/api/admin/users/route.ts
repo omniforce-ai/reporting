@@ -56,8 +56,14 @@ export async function POST(request: Request) {
       );
     }
     
+    // Get existing user to preserve existing metadata
+    const existingUser = await clerk.users.getUser(userId);
+    const existingMetadata = (existingUser.publicMetadata as any) || {};
+    
+    // Update role while preserving existing metadata (like clientSlug)
     await clerk.users.updateUserMetadata(userId, {
       publicMetadata: {
+        ...existingMetadata,
         role: role,
       },
     });
