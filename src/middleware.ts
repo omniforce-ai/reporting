@@ -66,8 +66,9 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
       clientSlug = (sessionClaims?.metadata?.clientSlug || sessionClaims?.publicMetadata?.clientSlug ||
                     sessionClaims?.metadata?.clientSubdomain || sessionClaims?.publicMetadata?.clientSubdomain) as string;
       
-      // If not in sessionClaims, fetch user directly from Clerk
-      if (!role || !clientSlug) {
+      // If accessing a client route or metadata missing, always fetch from Clerk to ensure we have latest data
+      // This is important for newly created users from invitations where metadata might not be in session yet
+      if (clientFromPath || !role || !clientSlug) {
         const clerkSecretKey = process.env.CLERK_SECRET_KEY;
         if (clerkSecretKey) {
           const clerk = new Clerk({ secretKey: clerkSecretKey });
@@ -75,6 +76,58 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
           const metadata = user.publicMetadata as any;
           role = role || metadata?.role || null;
           clientSlug = clientSlug || metadata?.clientSlug || metadata?.clientSubdomain || null;
+          
+          // If metadata is still missing, check if user has a pending/accepted invitation and apply it
+          // This handles cases where Clerk didn't automatically copy invitation metadata
+          if (!role && !clientSlug) {
+            try {
+              const email = user.emailAddresses?.[0]?.emailAddress;
+              if (email) {
+                // Check for recent invitations (accepted or pending) for this email
+                const invitations = await clerk.invitations.listInvitations({
+                  emailAddress: [email],
+                });
+                
+                if (invitations.data && invitations.data.length > 0) {
+                  // Get the most recent invitation
+                  const invitation = invitations.data[0];
+                  const invitationMetadata = invitation.publicMetadata as any;
+                  
+                  if (invitationMetadata?.role) {
+                    console.log('[Middleware] Applying invitation metadata to user:', {
+                      userId,
+                      email,
+                      metadata: invitationMetadata,
+                    });
+                    
+                    // Apply invitation metadata to user
+                    await clerk.users.updateUserMetadata(userId, {
+                      publicMetadata: invitationMetadata,
+                    });
+                    
+                    // Update local variables
+                    role = invitationMetadata.role || null;
+                    clientSlug = invitationMetadata.clientSlug || invitationMetadata.clientSubdomain || null;
+                    
+                    console.log('[Middleware] Successfully applied invitation metadata');
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('[Middleware] Error applying invitation metadata:', error);
+            }
+          }
+          
+          // Log for debugging invitation flow
+          if (clientFromPath && !clientSlug) {
+            console.log('[Middleware] User accessing client route but no clientSlug found:', {
+              userId,
+              pathname,
+              clientFromPath,
+              role,
+              metadata: JSON.stringify(metadata),
+            });
+          }
         }
       }
     } catch (error) {
@@ -88,11 +141,20 @@ export default clerkMiddleware(async (auth, request: NextRequest) => {
     if (role !== 'admin') {
       // Clients can only access their assigned client
       if (clientSlug !== clientFromPath) {
-        // Redirect to their own client dashboard if they have one, otherwise unauthorized
+        // Redirect to their own client dashboard if they have one
         if (clientSlug) {
           return NextResponse.redirect(new URL(`/clients/${clientSlug}/dashboard`, request.url));
         }
-        return NextResponse.redirect(new URL('/unauthorized', request.url), { status: 403 });
+        // If no clientSlug found, this might be a newly invited user
+        // Log for debugging and redirect to unauthorized
+        console.log('[Middleware] User accessing client route without matching clientSlug:', {
+          userId,
+          pathname,
+          clientFromPath,
+          role,
+          clientSlug,
+        });
+        return NextResponse.redirect(new URL('/unauthorized', request.url));
       }
     }
   }

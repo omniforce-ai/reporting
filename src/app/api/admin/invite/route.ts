@@ -59,17 +59,37 @@ export async function POST(request: Request) {
       }
     }
     
-    // Build redirect URL - if client, redirect to their client dashboard
-    let redirectUrl = '/';
+    // Check if user already exists - if so, they should sign in, not use invitation
+    try {
+      const existingUsers = await clerk.users.getUserList({ emailAddress: [email] });
+      if (existingUsers && existingUsers.length > 0) {
+        return NextResponse.json(
+          { error: 'User with this email already exists. They should sign in directly instead of using an invitation.' },
+          { status: 409 }
+        );
+      }
+    } catch (error) {
+      // If check fails, continue with invitation creation
+      console.log('Could not check for existing user, proceeding with invitation:', error);
+    }
+    
+    // Build redirect URL - this is where users go AFTER they complete sign-up
+    // Clerk's Account Portal handles the initial redirect (sign-up vs sign-in)
+    // Best practice: redirectUrl should point to the final destination
+    const requestUrl = new URL(request.url);
+    const baseUrl = requestUrl.origin;
+    
+    let redirectUrl = `${baseUrl}/`;
     if (role === 'client' && clientIdentifier) {
-      redirectUrl = `/clients/${clientIdentifier}/dashboard`;
+      redirectUrl = `${baseUrl}/clients/${clientIdentifier}/dashboard`;
     } else if (role === 'admin') {
-      redirectUrl = '/admin/clients';
+      redirectUrl = `${baseUrl}/admin/clients`;
     }
     
     // Create invitation
     console.log('Creating invitation for:', email, 'with role:', role, 'clientSlug:', clientIdentifier);
     console.log('Public metadata:', JSON.stringify(publicMetadata, null, 2));
+    console.log('Redirect URL (absolute):', redirectUrl);
     
     const invitation = await clerk.invitations.createInvitation({
       emailAddress: email,
@@ -82,7 +102,7 @@ export async function POST(request: Request) {
       id: invitation.id,
       email: invitation.emailAddress,
       status: invitation.status,
-      url: invitation.url,
+      url: invitation.url || null,
     });
     
     return NextResponse.json({
@@ -91,7 +111,7 @@ export async function POST(request: Request) {
         id: invitation.id,
         email: invitation.emailAddress,
         status: invitation.status,
-        url: invitation.url,
+        url: invitation.url || null,
       },
     });
   } catch (error: any) {
