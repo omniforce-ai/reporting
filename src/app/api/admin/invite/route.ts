@@ -76,8 +76,19 @@ export async function POST(request: Request) {
     // Build redirect URL - this is where users go AFTER they complete sign-up
     // Clerk's Account Portal handles the initial redirect (sign-up vs sign-in)
     // Best practice: redirectUrl should point to the final destination
-    const requestUrl = new URL(request.url);
-    const baseUrl = requestUrl.origin;
+    // Use NEXT_PUBLIC_APP_URL or VERCEL_URL in production, request URL in development
+    let baseUrl: string;
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+      baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+    } else if (process.env.VERCEL_URL) {
+      baseUrl = `https://${process.env.VERCEL_URL}`;
+    } else {
+      const requestUrl = new URL(request.url);
+      baseUrl = requestUrl.origin;
+    }
+    
+    // Ensure baseUrl doesn't end with a slash
+    baseUrl = baseUrl.replace(/\/$/, '');
     
     let redirectUrl = `${baseUrl}/`;
     if (role === 'client' && clientIdentifier) {
